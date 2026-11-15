@@ -1,63 +1,56 @@
 ﻿
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import text
-from sqlalchemy.orm import Session
 
-from app.core.config import settings
-from app.db.database import get_db
+from app.api.v1.auth import router as auth_router
+from app.api.v1.users import router as users_router
 
 
 app = FastAPI(
-    title=settings.APP_NAME,
+    title="AI Creative Studio API",
     description="Open-source AI image, audio and video generation platform",
-    version="1.0.0",
+    version="1.0.0"
 )
 
 
-# React frontend configuration
+# React development server
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:5173",
-        "http://127.0.0.1:5173",
+        "http://127.0.0.1:5173"
     ],
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type"]
+)
+
+
+app.include_router(
+    auth_router,
+    prefix="/api/v1"
+)
+
+app.include_router(
+    users_router,
+    prefix="/api/v1"
 )
 
 
 @app.get("/")
-async def root():
+def root():
+
     return {
         "application": "AI Creative Studio",
         "message": "Backend is running",
-        "version": "1.0.0",
+        "version": "1.0.0"
     }
 
 
 @app.get("/api/v1/health")
-async def health():
+def health():
+
     return {
         "status": "healthy",
-        "backend": "online",
+        "backend": "online"
     }
-
-
-@app.get("/api/v1/health/database")
-def database_health(db: Session = Depends(get_db)):
-    try:
-        db.execute(text("SELECT 1"))
-
-        return {
-            "status": "healthy",
-            "database": "connected",
-            "database_name": "ai-creative-studio",
-        }
-
-    except Exception as exc:
-        raise HTTPException(
-            status_code=503,
-            detail="Database connection failed",
-        ) from exc
