@@ -1,0 +1,42 @@
+﻿# Python
+__pycache__/
+*.pyc
+venv/
+.env
+.env.*
+!.env.example
+
+# Node
+node_modules/
+dist/
+.expo/
+.expo-shared/
+
+# Android
+android/.gradle/
+android/build/
+android/app/build/
+*.keystore
+*.jks
+
+# AI models
+ai_models/
+*.safetensors
+*.ckpt
+*.pt
+*.pth
+*.onnx
+
+# Generated media
+storage/images/*
+storage/audio/*
+storage/videos/*
+storage/temp/*
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
