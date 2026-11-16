@@ -1,13 +1,14 @@
-﻿
-import {
+﻿import {
   BrowserRouter,
   Navigate,
   Route,
   Routes,
   Outlet,
+  Link,
 } from "react-router-dom";
+import { Sparkles } from "lucide-react";
 
-import { AuthProvider } from "./context/AuthContext";
+import { AuthProvider, useAuth } from "./context/AuthContext";
 
 import ProtectedRoute from "./components/ProtectedRoute";
 import AdminRoute from "./components/AdminRoute";
@@ -28,6 +29,10 @@ import VideoStudio from "./pages/Studios/VideoStudio";
 
 import Register from "./pages/Register";
 
+import AIAccessSettings from "./pages/Admin/AIAccessSettings";
+import ImageHistory from "./pages/Admin/ImageHistory";
+import ReferenceList from "./pages/Admin/ReferenceList";
+
 import "./App.css";
 
 function MainLayout() {
@@ -46,45 +51,70 @@ function MainLayout() {
   );
 }
 
+/* Studios are open to guests and logged-in users. */
+function StudioLayout() {
+  const { user, loading } = useAuth();
+
+  if (loading) {
+    return <div className="page-loader">Loading...</div>;
+  }
+
+  if (user) {
+    return <MainLayout />;
+  }
+
+  return (
+    <div className="public-studio-page">
+      <header className="public-studio-header">
+        <Link to="/" className="landing-logo">
+          <Sparkles size={24} />
+          <span>AI Creative Studio</span>
+        </Link>
+
+        <Link to="/login" className="landing-login">
+          Sign In
+        </Link>
+      </header>
+
+      <main className="public-studio-content">
+        <Outlet />
+      </main>
+    </div>
+  );
+}
+
 function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
         <Routes>
-
-          {/* Public Landing Page */}
           <Route path="/" element={<Home />} />
-
-          {/* Login */}
           <Route path="/login" element={<Login />} />
-
-          {/* Register */}
           <Route path="/register" element={<Register />} />
 
-          {/* Protected Application */}
+          {/* Public + logged-in studio pages with text prompt */}
+          <Route element={<StudioLayout />}>
+            <Route path="/studios/image" element={<ImageStudio />} />
+            <Route path="/studios/audio" element={<AudioStudio />} />
+            <Route path="/studios/video" element={<VideoStudio />} />
+          </Route>
+
           <Route element={<ProtectedRoute />}>
             <Route element={<MainLayout />}>
-
               <Route path="/dashboard" element={<Dashboard />} />
 
-              {/* Administrator Only */}
               <Route element={<AdminRoute />}>
                 <Route path="/users" element={<UserList />} />
                 <Route path="/users/create" element={<CreateUser />} />
                 <Route path="/users/:id/edit" element={<EditUser />} />
+                <Route path="/admin/ai-access" element={<AIAccessSettings />} />
+                <Route path="/admin/images" element={<ImageHistory />} />
+                <Route path="/admin/references" element={<ReferenceList />} />
               </Route>
-
-              {/* Permission Protected Studios */}
-              <Route path="/studios/image" element={<ImageStudio />} />
-              <Route path="/studios/audio" element={<AudioStudio />} />
-              <Route path="/studios/video" element={<VideoStudio />} />
-
             </Route>
           </Route>
 
-          {/* Unknown URLs */}
           <Route path="*" element={<Navigate to="/" replace />} />
-
         </Routes>
       </AuthProvider>
     </BrowserRouter>

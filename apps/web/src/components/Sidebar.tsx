@@ -4,9 +4,12 @@ import {
   LayoutDashboard,
   Users,
   Image,
+  Images,
+  FileImage,
   AudioLines,
   Video,
   Sparkles,
+  Settings2,
 } from "lucide-react";
 
 import { useAuth } from "../context/AuthContext";
@@ -31,6 +34,27 @@ export default function Sidebar() {
           <NavLink to="/users">
             <Users size={19} />
             User Management
+          </NavLink>
+        )}
+
+        {isAdmin && (
+          <NavLink to="/admin/ai-access">
+            <Settings2 size={19} />
+            AI Access Settings
+          </NavLink>
+        )}
+
+        {isAdmin && (
+          <NavLink to="/admin/images">
+            <Images size={19} />
+            Generated Images
+          </NavLink>
+        )}
+
+        {isAdmin && (
+          <NavLink to="/admin/references">
+            <FileImage size={19} />
+            Reference Styles
           </NavLink>
         )}
 

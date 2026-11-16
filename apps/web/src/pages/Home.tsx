@@ -1,4 +1,3 @@
-
 import { Link } from "react-router-dom";
 import {
   Sparkles,
@@ -50,7 +49,7 @@ export default function Home() {
             </p>
 
             <div className="hero-actions">
-              <Link to="/login" className="hero-primary-button">
+              <Link to="/studios/image" className="hero-primary-button">
                 Get Started <ArrowRight size={18} />
               </Link>
 
@@ -76,29 +75,29 @@ export default function Home() {
               </div>
 
               <div className="visual-grid">
-                <div className="visual-tile image-tile">
+                <Link to="/studios/image" className="visual-tile image-tile">
                   <Image size={34} />
                   <span>AI Image</span>
                   <small>Create stunning visuals</small>
-                </div>
+                </Link>
 
-                <div className="visual-tile audio-tile">
+                <Link to="/studios/audio" className="visual-tile audio-tile">
                   <AudioLines size={34} />
                   <span>AI Audio</span>
                   <small>Generate creative sounds</small>
-                </div>
+                </Link>
 
-                <div className="visual-tile video-tile">
+                <Link to="/studios/video" className="visual-tile video-tile">
                   <Video size={34} />
                   <span>AI Video</span>
                   <small>Bring stories to life</small>
-                </div>
+                </Link>
 
-                <div className="visual-tile magic-tile">
+                <Link to="/studios/image" className="visual-tile magic-tile">
                   <WandSparkles size={34} />
                   <span>Unlimited Ideas</span>
                   <small>Your creativity starts here</small>
-                </div>
+                </Link>
               </div>
 
               <div className="visual-footer">
@@ -120,7 +119,7 @@ export default function Home() {
           </div>
 
           <div className="feature-grid">
-            <div className="feature-card">
+            <Link to="/studios/image" className="feature-card">
               <div className="feature-icon image-icon">
                 <Image size={27} />
               </div>
@@ -129,9 +128,9 @@ export default function Home() {
                 Transform text descriptions into creative images
                 and visual artwork.
               </p>
-            </div>
+            </Link>
 
-            <div className="feature-card">
+            <Link to="/studios/audio" className="feature-card">
               <div className="feature-icon audio-icon">
                 <AudioLines size={27} />
               </div>
@@ -140,9 +139,9 @@ export default function Home() {
                 Create audio content using intelligent
                 text-to-audio tools.
               </p>
-            </div>
+            </Link>
 
-            <div className="feature-card">
+            <Link to="/studios/video" className="feature-card">
               <div className="feature-icon video-icon">
                 <Video size={27} />
               </div>
@@ -151,7 +150,7 @@ export default function Home() {
                 Turn your creative concepts into engaging
                 AI-generated videos.
               </p>
-            </div>
+            </Link>
           </div>
         </section>
 
@@ -162,7 +161,7 @@ export default function Home() {
             A unified creative workspace for image, audio and
             video generation, with secure user access.
           </p>
-          <Link to="/login" className="hero-primary-button">
+          <Link to="/studios/image" className="hero-primary-button">
             Enter Creative Studio <ArrowRight size={18} />
           </Link>
         </section>
