@@ -3,8 +3,7 @@ Build short, CLIP-safe prompts for Realistic Vision.
 
 CLIP max = 77 tokens.
 - No reference selected  -> use the user prompt only
-- Reference selected     -> interpret the user's edit intent and build
-                            a focused prompt (especially background-only edits)
+- Reference selected     -> interpret edit intent without forcing human/portrait terms
 """
 
 from __future__ import annotations
@@ -58,8 +57,6 @@ def build_prompts(
 ) -> tuple[str, str, str | None, dict | None]:
     """
     Returns: (final_prompt, negative_prompt, used_prompt_id, edit_plan_dict)
-
-    edit_plan_dict is set when a reference image is used.
     """
     user_text = clean_user_text(user_text)
     if not user_text:
@@ -82,10 +79,15 @@ def build_prompts(
         }
 
         if plan.mode == "background":
-            # Put the requested background first so CLIP prioritizes it
+            # Only the requested background + subject preservation (no portrait bias)
             final = (
-                f"{plan.change_text}, studio portrait photo, "
-                f"{plan.keep_text}, photorealistic, sharp detail"
+                f"{plan.change_text}, {plan.keep_text}, "
+                f"photorealistic, sharp detail"
+            )
+        elif plan.mode == "preserve":
+            final = (
+                f"{plan.change_text}, {plan.keep_text}, "
+                f"photorealistic, natural lighting"
             )
         else:
             final = (

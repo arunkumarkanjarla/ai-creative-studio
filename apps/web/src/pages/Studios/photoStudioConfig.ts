@@ -169,10 +169,11 @@ export function buildToolPrompt(
     case "background_change":
       return (
         base ||
-        `change the background to ${sceneBit || "a clean studio backdrop"}, keep same person, same face, same pose, same clothing`
+        `change the background to ${sceneBit || "a clean backdrop"}, keep the same original subject, same details, same composition`
       );
     case "remove_background":
-      return "change the background color to white, keep same person, same face, same pose, same clothing, same composition";
+      return "change the background color to white, keep the same original subject, same details, same composition";
+
     case "face_swap":
       return (
         `${base || "replace the face in image 1 with the face from image 2"}, ` +
@@ -194,9 +195,9 @@ export function buildToolPrompt(
     case "object_replace":
       return `${base || "replace the object described"}, keep rest of image same, photorealistic`;
     case "upscale":
-      return `${base || "enhance details, sharper, high quality"}, keep same person and composition`;
+      return `${base || "enhance details, sharper, high quality"}, keep same subject and composition`;
     case "restore":
-      return `${base || "restore old damaged photo"}, fix scratches, colorize naturally, keep same faces`;
+      return `${base || "restore old damaged photo"}, fix scratches, colorize naturally, keep same subject`;
     case "photo_to_artwork":
       return `${base || "convert photo to artwork"}, artistic style` + (extras ? `, ${extras}` : "");
     case "text_to_image":
