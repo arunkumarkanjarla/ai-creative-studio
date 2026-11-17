@@ -301,7 +301,30 @@ async def generate_image(
     out_h = height if height and height % 64 == 0 else None
 
     used_prompt_id: str | None = prompt_id.strip() or None
-    _ = (photo_type, photo_style, scene, reference_secondary)
+
+    # Apply studio settings into the generation prompt when present
+    style_bit = (photo_style or "").strip()
+    scene_bit = (scene or "").strip()
+    type_bit = (photo_type or "").strip().lower()
+    type_hints = {
+        "passport": "passport photo framing, plain backdrop, centered subject",
+        "id": "ID card photo framing, neutral backdrop, head and shoulders",
+        "album": "album print composition, natural portrait framing",
+        "social": "social media photo composition, eye-catching framing",
+        "poster": "poster composition, bold subject placement",
+    }
+    extras: list[str] = []
+    if style_bit and style_bit.lower() not in prompt_text.lower():
+        extras.append(f"{style_bit.lower()} photography")
+    if scene_bit and scene_bit.lower() != "custom" and scene_bit.lower() not in prompt_text.lower():
+        extras.append(f"{scene_bit.lower()} background")
+    type_hint = type_hints.get(type_bit, "")
+    if type_hint and type_hint.lower() not in prompt_text.lower():
+        extras.append(type_hint)
+    if extras:
+        prompt_text = f"{prompt_text}, {', '.join(extras)}"
+
+    _ = reference_secondary
 
     # If a reference file is attached, save it now with a prompt_id
     if reference is not None and reference.filename:

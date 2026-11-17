@@ -1,4 +1,5 @@
-﻿import {
+﻿import { useEffect, useState } from "react";
+import {
   BrowserRouter,
   Navigate,
   Route,
@@ -9,11 +10,13 @@
 import { Sparkles } from "lucide-react";
 
 import { AuthProvider, useAuth } from "./context/AuthContext";
+import { ThemeProvider } from "./context/ThemeContext";
 
 import ProtectedRoute from "./components/ProtectedRoute";
 import AdminRoute from "./components/AdminRoute";
 import Sidebar from "./components/Sidebar";
 import Navbar from "./components/Navbar";
+import ThemePicker from "./components/ThemePicker";
 
 import Home from "./pages/Home";
 import Login from "./pages/Login";
@@ -35,10 +38,23 @@ import ReferenceList from "./pages/Admin/ReferenceList";
 
 import "./App.css";
 
+const SIDEBAR_COLLAPSED_KEY = "acs_sidebar_collapsed";
+
 function MainLayout() {
+  const [collapsed, setCollapsed] = useState(() => {
+    return localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === "1";
+  });
+
+  useEffect(() => {
+    localStorage.setItem(SIDEBAR_COLLAPSED_KEY, collapsed ? "1" : "0");
+  }, [collapsed]);
+
   return (
-    <div className="app-layout">
-      <Sidebar />
+    <div className={`app-layout${collapsed ? " is-sidebar-collapsed" : ""}`}>
+      <Sidebar
+        collapsed={collapsed}
+        onToggleCollapsed={() => setCollapsed((value) => !value)}
+      />
 
       <div className="main-area">
         <Navbar />
@@ -51,7 +67,47 @@ function MainLayout() {
   );
 }
 
-/* Studios are open to guests and logged-in users. */
+function GuestStudioLayout() {
+  const [collapsed, setCollapsed] = useState(() => {
+    return localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === "1";
+  });
+
+  useEffect(() => {
+    localStorage.setItem(SIDEBAR_COLLAPSED_KEY, collapsed ? "1" : "0");
+  }, [collapsed]);
+
+  return (
+    <div className={`app-layout${collapsed ? " is-sidebar-collapsed" : ""}`}>
+      <Sidebar
+        guestMode
+        collapsed={collapsed}
+        onToggleCollapsed={() => setCollapsed((value) => !value)}
+      />
+
+      <div className="main-area">
+        <header className="app-navbar">
+          <div className="navbar-actions">
+            <Link to="/" className="navbar-title-link">
+              <Sparkles size={20} />
+              <span className="navbar-title">AI Creative Studio</span>
+            </Link>
+          </div>
+          <div className="navbar-actions">
+            <ThemePicker />
+            <Link to="/login" className="primary-button">
+              Sign In
+            </Link>
+          </div>
+        </header>
+
+        <main className="main-content">
+          <Outlet />
+        </main>
+      </div>
+    </div>
+  );
+}
+
 function StudioLayout() {
   const { user, loading } = useAuth();
 
@@ -63,60 +119,44 @@ function StudioLayout() {
     return <MainLayout />;
   }
 
-  return (
-    <div className="public-studio-page">
-      <header className="public-studio-header">
-        <Link to="/" className="landing-logo">
-          <Sparkles size={24} />
-          <span>AI Creative Studio</span>
-        </Link>
-
-        <Link to="/login" className="landing-login">
-          Sign In
-        </Link>
-      </header>
-
-      <main className="public-studio-content">
-        <Outlet />
-      </main>
-    </div>
-  );
+  return <GuestStudioLayout />;
 }
 
 function App() {
   return (
     <BrowserRouter>
-      <AuthProvider>
-        <Routes>
-          <Route path="/" element={<Home />} />
-          <Route path="/login" element={<Login />} />
-          <Route path="/register" element={<Register />} />
+      <ThemeProvider>
+        <AuthProvider>
+          <Routes>
+            <Route path="/" element={<Home />} />
+            <Route path="/login" element={<Login />} />
+            <Route path="/register" element={<Register />} />
 
-          {/* Public + logged-in studio pages with text prompt */}
-          <Route element={<StudioLayout />}>
-            <Route path="/studios/image" element={<ImageStudio />} />
-            <Route path="/studios/audio" element={<AudioStudio />} />
-            <Route path="/studios/video" element={<VideoStudio />} />
-          </Route>
+            <Route element={<StudioLayout />}>
+              <Route path="/studios/image" element={<ImageStudio />} />
+              <Route path="/studios/audio" element={<AudioStudio />} />
+              <Route path="/studios/video" element={<VideoStudio />} />
+            </Route>
 
-          <Route element={<ProtectedRoute />}>
-            <Route element={<MainLayout />}>
-              <Route path="/dashboard" element={<Dashboard />} />
+            <Route element={<ProtectedRoute />}>
+              <Route element={<MainLayout />}>
+                <Route path="/dashboard" element={<Dashboard />} />
 
-              <Route element={<AdminRoute />}>
-                <Route path="/users" element={<UserList />} />
-                <Route path="/users/create" element={<CreateUser />} />
-                <Route path="/users/:id/edit" element={<EditUser />} />
-                <Route path="/admin/ai-access" element={<AIAccessSettings />} />
-                <Route path="/admin/images" element={<ImageHistory />} />
-                <Route path="/admin/references" element={<ReferenceList />} />
+                <Route element={<AdminRoute />}>
+                  <Route path="/users" element={<UserList />} />
+                  <Route path="/users/create" element={<CreateUser />} />
+                  <Route path="/users/:id/edit" element={<EditUser />} />
+                  <Route path="/admin/ai-access" element={<AIAccessSettings />} />
+                  <Route path="/admin/images" element={<ImageHistory />} />
+                  <Route path="/admin/references" element={<ReferenceList />} />
+                </Route>
               </Route>
             </Route>
-          </Route>
 
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
-      </AuthProvider>
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </AuthProvider>
+      </ThemeProvider>
     </BrowserRouter>
   );
 }

@@ -152,18 +152,28 @@ export const SCENES = [
   "Custom",
 ] as const;
 
+const PHOTO_TYPE_HINTS: Record<string, string> = {
+  passport: "passport photo framing, plain backdrop, centered subject",
+  id: "ID card photo framing, neutral backdrop, head and shoulders",
+  album: "album print composition, natural portrait framing",
+  social: "social media photo composition, eye-catching framing",
+  poster: "poster composition, bold subject placement",
+};
+
 export function buildToolPrompt(
   tool: StudioToolId,
   userPrompt: string,
   style: string,
-  scene: string
+  scene: string,
+  photoType: string = "album"
 ): string {
   const base = userPrompt.trim();
   const styleBit = style ? `${style.toLowerCase()} photography` : "";
   const sceneBit =
     scene && scene !== "Custom" ? `${scene.toLowerCase()} background` : "";
+  const typeBit = PHOTO_TYPE_HINTS[photoType] || "";
 
-  const extras = [styleBit, sceneBit].filter(Boolean).join(", ");
+  const extras = [styleBit, sceneBit, typeBit].filter(Boolean).join(", ");
 
   switch (tool) {
     case "background_change":
@@ -191,7 +201,7 @@ export function buildToolPrompt(
         (extras ? `, ${extras}` : "")
       );
     case "image_to_image":
-      return base + (extras ? `, ${extras}` : "");
+      return [base, extras].filter(Boolean).join(", ");
     case "object_replace":
       return `${base || "replace the object described"}, keep rest of image same, photorealistic`;
     case "upscale":
@@ -199,9 +209,11 @@ export function buildToolPrompt(
     case "restore":
       return `${base || "restore old damaged photo"}, fix scratches, colorize naturally, keep same subject`;
     case "photo_to_artwork":
-      return `${base || "convert photo to artwork"}, artistic style` + (extras ? `, ${extras}` : "");
+      return [base || "convert photo to artwork", "artistic style", extras]
+        .filter(Boolean)
+        .join(", ");
     case "text_to_image":
     default:
-      return base + (extras ? `, ${extras}` : "");
+      return [base, extras].filter(Boolean).join(", ");
   }
 }

@@ -1,12 +1,31 @@
-
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="default" data-font="inter">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#090d18" />
-    <meta name="description" content="AI Creative Studio - Create images, audio and videos with open-source AI." />
+    <meta
+      name="description"
+      content="AI Creative Studio - Create images, audio and videos with open-source AI."
+    />
     <title>AI Creative Studio</title>
+    <script>
+      (function () {
+        try {
+          var theme = localStorage.getItem("acs_theme_id") || "default";
+          var font = localStorage.getItem("acs_font_id") || "inter";
+          var size = Number(localStorage.getItem("acs_font_size_px") || 14);
+          if (!isFinite(size)) size = 14;
+          size = Math.min(20, Math.max(11, Math.round(size)));
+          var root = document.documentElement;
+          root.setAttribute("data-theme", theme);
+          root.setAttribute("data-font", font);
+          root.setAttribute("data-font-size", String(size));
+          root.style.setProperty("--app-font-size", size + "px");
+          root.style.setProperty("--ui-scale", String(Number((size / 14).toFixed(3))));
+        } catch (e) {}
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

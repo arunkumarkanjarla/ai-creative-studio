@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import {
+  Eye,
   Image as ImageIcon,
   Lock,
   Sparkles,
@@ -30,11 +31,6 @@ interface GeneratedItem {
   error_message: string | null;
 }
 
-interface HistoryResponse {
-  total: number;
-  items: GeneratedItem[];
-}
-
 interface JobStartResponse {
   job_id: number;
   status: string;
@@ -52,6 +48,8 @@ interface JobStatusResponse {
   result: GeneratedItem | null;
 }
 
+type RunMode = "preview" | "generate";
+
 function useObjectUrl(file: File | null) {
   const [url, setUrl] = useState<string | null>(null);
   useEffect(() => {
@@ -66,27 +64,39 @@ function useObjectUrl(file: File | null) {
   return url;
 }
 
+function isStudioToolId(value: string | null): value is StudioToolId {
+  return CREATE_TOOLS.some((tool) => tool.id === value);
+}
+
 export default function ImageStudio() {
   const { user } = useAuth();
   const isLoggedIn = Boolean(user);
+  const [searchParams, setSearchParams] = useSearchParams();
 
-  const [toolId, setToolId] = useState<StudioToolId>("text_to_image");
+  const toolFromUrl = searchParams.get("tool");
+  const toolId: StudioToolId = isStudioToolId(toolFromUrl)
+    ? toolFromUrl
+    : "text_to_image";
+
   const [prompt, setPrompt] = useState("");
   const [image1, setImage1] = useState<File | null>(null);
   const [image2, setImage2] = useState<File | null>(null);
   const [image1Key, setImage1Key] = useState(0);
   const [image2Key, setImage2Key] = useState(0);
-  const [dimensionId, setDimensionId] = useState<(typeof DIMENSIONS)[number]["id"]>("3:4");
-  const [photoType, setPhotoType] = useState<(typeof PHOTO_TYPES)[number]["id"]>("album");
+  const [dimensionId, setDimensionId] =
+    useState<(typeof DIMENSIONS)[number]["id"]>("3:4");
+  const [photoType, setPhotoType] =
+    useState<(typeof PHOTO_TYPES)[number]["id"]>("album");
   const [style, setStyle] = useState<(typeof PHOTO_STYLES)[number]>("Realistic");
   const [scene, setScene] = useState<(typeof SCENES)[number]>("Beach");
 
   const [loading, setLoading] = useState(false);
+  const [runMode, setRunMode] = useState<RunMode | null>(null);
   const [progress, setProgress] = useState(0);
   const [progressMessage, setProgressMessage] = useState("");
   const [error, setError] = useState("");
   const [latest, setLatest] = useState<GeneratedItem | null>(null);
-  const [history, setHistory] = useState<GeneratedItem[]>([]);
+  const [previewResult, setPreviewResult] = useState<GeneratedItem | null>(null);
 
   const image1Preview = useObjectUrl(image1);
   const image2Preview = useObjectUrl(image2);
@@ -101,31 +111,25 @@ export default function ImageStudio() {
     [dimensionId]
   );
 
-  async function loadHistory() {
-    try {
-      const data = await apiRequest<HistoryResponse>(
-        "/images/history?page=1&page_size=12"
-      );
-      setHistory(data.items);
-    } catch {
-      // guests may have empty history
-    }
-  }
+  const composedPrompt = useMemo(
+    () => buildToolPrompt(tool.id, prompt, style, scene, photoType),
+    [tool.id, prompt, style, scene, photoType]
+  );
 
   useEffect(() => {
-    loadHistory();
-  }, []);
-
-  function selectTool(next: StudioToolId) {
-    const selected = CREATE_TOOLS.find((item) => item.id === next);
-    if (!selected) return;
-    if (!selected.guestAllowed && !isLoggedIn) {
-      setError("Sign in to use this Photo Studio feature.");
-      return;
+    if (!isStudioToolId(toolFromUrl)) {
+      setSearchParams({ tool: "text_to_image" }, { replace: true });
     }
+  }, [toolFromUrl, setSearchParams]);
+
+  useEffect(() => {
     setError("");
-    setToolId(next);
-  }
+    setLatest(null);
+    setPreviewResult(null);
+    setProgress(0);
+    setProgressMessage("");
+    setRunMode(null);
+  }, [toolId]);
 
   function clearForm() {
     setPrompt("");
@@ -153,52 +157,69 @@ export default function ImageStudio() {
     }
   }
 
-  async function handleGenerate(event: FormEvent) {
-    event.preventDefault();
-
-    if (!tool.guestAllowed && !isLoggedIn) {
-      setError("Sign in to use this Photo Studio feature.");
+  async function runGeneration(mode: RunMode) {
+    if (!isLoggedIn) {
+      setError("Sign in to preview and generate images.");
       return;
     }
 
-    const finalPrompt = buildToolPrompt(tool.id, prompt, style, scene);
+    const finalPrompt = composedPrompt;
+    if (prompt.trim().length < 3 && mode === "preview") {
+      setError("Enter a prompt to preview the generated image.");
+      return;
+    }
     if (finalPrompt.trim().length < 3) {
       setError("Please enter a prompt describing what you want.");
       return;
     }
 
-    if (tool.needsImage1 && !image1) {
-      setError("Upload Image 1 to continue.");
-      return;
-    }
-    if (tool.needsImage2 && !image2) {
-      setError("Upload Image 2 to continue.");
-      return;
+    // Preview is always prompt-only (no reference upload).
+    // Generate uses uploads when the selected tool needs them.
+    if (mode === "generate") {
+      if (tool.needsImage1 && !image1) {
+        setError("Upload Image 1 to continue.");
+        return;
+      }
+      if (tool.needsImage2 && !image2) {
+        setError("Upload Image 2 to continue.");
+        return;
+      }
     }
 
     setLoading(true);
+    setRunMode(mode);
     setProgress(1);
-    setProgressMessage("Starting...");
+    setProgressMessage(
+      mode === "preview" ? "Creating preview from prompt..." : "Starting..."
+    );
     setError("");
-    setLatest(null);
+    if (mode === "preview") {
+      setPreviewResult(null);
+    } else {
+      setLatest(null);
+    }
 
     try {
       const form = new FormData();
       form.append("prompt", finalPrompt);
-      form.append("tool", tool.id);
+      form.append(
+        "tool",
+        mode === "preview" ? "text_to_image" : tool.id
+      );
       form.append("width", String(dimension.width));
       form.append("height", String(dimension.height));
       form.append("photo_type", photoType);
       form.append("photo_style", style);
       form.append("scene", scene);
 
-      // Primary reference is Image 1; for text-to-image optional Image 1 works as style ref
-      const reference = image1 || image2;
-      if (reference) {
-        form.append("reference", reference);
-      }
-      if (image2 && tool.needsImage2) {
-        form.append("reference_secondary", image2);
+      if (mode === "generate") {
+        const reference = image1 || image2;
+        if (reference) {
+          form.append("reference", reference);
+        }
+        if (image2 && tool.needsImage2) {
+          form.append("reference_secondary", image2);
+        }
       }
 
       const started = await apiRequest<JobStartResponse>("/images/generate", {
@@ -207,22 +228,45 @@ export default function ImageStudio() {
       });
 
       setProgress(started.progress || 1);
-      setProgressMessage(started.message || "Queued...");
+      setProgressMessage(
+        started.message ||
+          (mode === "preview" ? "Preview queued..." : "Queued...")
+      );
 
       const result = await pollJob(started.job_id);
-      setLatest(result);
+      if (mode === "preview") {
+        setPreviewResult(result);
+        setProgressMessage("Preview ready");
+      } else {
+        setLatest(result);
+        setProgressMessage("Done");
+        clearForm();
+      }
       setProgress(100);
-      setProgressMessage("Done");
-      clearForm();
-      await loadHistory();
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Image generation failed."
       );
     } finally {
       setLoading(false);
+      setRunMode(null);
     }
   }
+
+  async function handleGenerate(event: FormEvent) {
+    event.preventDefault();
+    await runGeneration("generate");
+  }
+
+  const aspectPadding = `${(dimension.height / dimension.width) * 100}%`;
+  const displayImage =
+    latest?.image_url && !loading
+      ? latest
+      : previewResult?.image_url && !(loading && runMode === "preview")
+        ? previewResult
+        : null;
+  const photoTypeLabel =
+    PHOTO_TYPES.find((item) => item.id === photoType)?.label || photoType;
 
   return (
     <div className="photo-studio">
@@ -233,57 +277,20 @@ export default function ImageStudio() {
             <h1>Photo Studio</h1>
             <p>
               {isLoggedIn
-                ? "Full AI photo editing and generation tools."
-                : "Guests can use Text to Image. Sign in for the full Photo Studio."}
+                ? "Preview generates from your prompt and settings. Generate uses the full tool flow."
+                : "Browse all Photo Studio tools. Sign in to preview and generate."}
             </p>
           </div>
         </div>
         {!isLoggedIn && (
           <Link to="/login" className="primary-button photo-studio-signin">
-            Sign in for all features
+            Sign in to generate
           </Link>
         )}
       </div>
 
-      <div className="photo-studio-layout">
-        <aside className="photo-tool-nav">
-          <h4>Create & Edit</h4>
-          <ul>
-            {CREATE_TOOLS.map((item) => {
-              const locked = !item.guestAllowed && !isLoggedIn;
-              return (
-                <li key={item.id}>
-                  <button
-                    type="button"
-                    className={`photo-tool-btn${
-                      toolId === item.id ? " is-active" : ""
-                    }${locked ? " is-locked" : ""}`}
-                    onClick={() => selectTool(item.id)}
-                  >
-                    <span>{item.label}</span>
-                    {item.badge && <em>{item.badge}</em>}
-                    {locked && <Lock size={14} />}
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-        </aside>
-
+      <div className="photo-studio-layout photo-studio-layout-wide">
         <section className="photo-workspace">
-          <div className="photo-quick-tabs">
-            {CREATE_TOOLS.slice(0, 4).map((item) => (
-              <button
-                key={item.id}
-                type="button"
-                className={`photo-chip${toolId === item.id ? " is-active" : ""}`}
-                onClick={() => selectTool(item.id)}
-              >
-                {item.label}
-              </button>
-            ))}
-          </div>
-
           <form className="photo-main-card" onSubmit={handleGenerate}>
             <div className="photo-tool-title">
               <Sparkles size={18} />
@@ -292,6 +299,17 @@ export default function ImageStudio() {
                 <p>{tool.description}</p>
               </div>
             </div>
+
+            {!isLoggedIn && (
+              <div className="photo-guest-banner">
+                <Lock size={16} />
+                <span>
+                  Sign in to preview and generate with{" "}
+                  <strong>{tool.label}</strong>.
+                </span>
+                <Link to="/login">Sign in</Link>
+              </div>
+            )}
 
             <label>
               Your prompt
@@ -312,7 +330,7 @@ export default function ImageStudio() {
                     {tool.needsImage2
                       ? "Upload Image 1 (Person / Scene)"
                       : tool.id === "text_to_image"
-                        ? "Reference image (optional)"
+                        ? "Reference image (optional for Generate)"
                         : "Upload Image 1"}
                   </strong>
                   <input
@@ -349,8 +367,37 @@ export default function ImageStudio() {
             {error && <div className="error-message">{error}</div>}
 
             <div className="photo-actions">
-              <button className="primary-button" type="submit" disabled={loading}>
-                {loading ? "Generating..." : "Generate Image"}
+              <button
+                className="secondary-button"
+                type="button"
+                disabled={loading || !isLoggedIn}
+                onClick={() => runGeneration("preview")}
+                title={
+                  isLoggedIn
+                    ? "Generate a preview from prompt + settings (no reference)"
+                    : "Sign in to preview"
+                }
+              >
+                <Eye size={16} />
+                {loading && runMode === "preview"
+                  ? "Previewing..."
+                  : "Preview"}
+              </button>
+              <button
+                className="primary-button"
+                type="submit"
+                disabled={loading || !isLoggedIn}
+                title={
+                  isLoggedIn
+                    ? "Generate final image with settings"
+                    : "Sign in to generate images"
+                }
+              >
+                {loading && runMode === "generate"
+                  ? "Generating..."
+                  : isLoggedIn
+                    ? "Generate Image"
+                    : "Sign in to Generate"}
               </button>
               <button
                 className="secondary-button"
@@ -361,50 +408,73 @@ export default function ImageStudio() {
                 Clear
               </button>
             </div>
-
-            {loading && (
-              <GenerationProgress
-                progress={progress}
-                message={progressMessage || "Generating..."}
-              />
-            )}
           </form>
 
-          {latest?.image_url && !loading && (
-            <div className="photo-result">
-              <h3>Latest result</h3>
-              <img src={mediaUrl(latest.image_url) || ""} alt={latest.prompt} />
-              <p>{latest.prompt}</p>
-              {latest.generation_time_seconds != null && (
+          <div className="photo-preview-panel">
+            <div className="photo-preview-header">
+              <h3>Live Preview</h3>
+              <span>
+                {dimension.label} · {photoTypeLabel} · {style} · {scene}
+              </span>
+            </div>
+
+            <div
+              className={`photo-preview-stage${loading ? " is-generating" : ""}`}
+            >
+              <div
+                className="photo-preview-frame"
+                style={{ paddingBottom: aspectPadding }}
+              >
+                <div className="photo-preview-inner">
+                  {displayImage?.image_url ? (
+                    <img
+                      src={mediaUrl(displayImage.image_url) || ""}
+                      alt={displayImage.prompt}
+                      className="photo-preview-result"
+                    />
+                  ) : (
+                    <div className="photo-preview-placeholder">
+                      <Sparkles size={28} />
+                      <p>
+                        {composedPrompt.trim()
+                          ? "Click Preview to generate from your prompt and settings"
+                          : "Add a prompt, choose settings, then Preview"}
+                      </p>
+                    </div>
+                  )}
+                  {loading && (
+                    <div className="photo-preview-overlay">
+                      <GenerationProgress
+                        progress={progress}
+                        message={
+                          progressMessage ||
+                          (runMode === "preview"
+                            ? "Creating preview..."
+                            : "Generating...")
+                        }
+                      />
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="photo-preview-meta">
+              <p>
+                <strong>Tool:</strong> {tool.label}
+                {runMode === "preview" || previewResult
+                  ? " · Preview uses prompt only (no reference)"
+                  : ""}
+              </p>
+              <p>
+                <strong>Applied prompt:</strong> {composedPrompt.trim() || "—"}
+              </p>
+              {displayImage?.generation_time_seconds != null && !loading && (
                 <small>
-                  Generated in {latest.generation_time_seconds} seconds
+                  Generated in {displayImage.generation_time_seconds} seconds
                 </small>
               )}
             </div>
-          )}
-
-          <div className="history-section">
-            <h3>Gallery</h3>
-            {history.length === 0 ? (
-              <p className="muted-text">No images yet. Generate your first one.</p>
-            ) : (
-              <div className="history-grid">
-                {history.map((item) => (
-                  <article className="history-card" key={item.id}>
-                    {item.image_url ? (
-                      <img
-                        src={mediaUrl(item.image_url) || ""}
-                        alt={item.prompt}
-                      />
-                    ) : (
-                      <div className="history-empty">{item.status}</div>
-                    )}
-                    <p>{item.prompt}</p>
-                    <small>{new Date(item.created_at).toLocaleString()}</small>
-                  </article>
-                ))}
-              </div>
-            )}
           </div>
         </section>
 
@@ -447,9 +517,6 @@ export default function ImageStudio() {
                 </button>
               ))}
             </div>
-            {!isLoggedIn && (
-              <p className="muted-text">Sign in to use photo type presets.</p>
-            )}
           </div>
 
           <div className="photo-settings-block">
@@ -461,7 +528,7 @@ export default function ImageStudio() {
                   type="button"
                   className={`photo-chip${style === item ? " is-active" : ""}`}
                   onClick={() => setStyle(item)}
-                  disabled={loading}
+                  disabled={loading || !isLoggedIn}
                 >
                   {item}
                 </button>
@@ -478,13 +545,19 @@ export default function ImageStudio() {
                   type="button"
                   className={`photo-chip${scene === item ? " is-active" : ""}`}
                   onClick={() => setScene(item)}
-                  disabled={loading || (!isLoggedIn && toolId !== "text_to_image")}
+                  disabled={loading || !isLoggedIn}
                 >
                   {item}
                 </button>
               ))}
             </div>
           </div>
+
+          {!isLoggedIn && (
+            <p className="muted-text">
+              Sign in to apply Photo Type, Style, and Scene to generation.
+            </p>
+          )}
         </aside>
       </div>
     </div>

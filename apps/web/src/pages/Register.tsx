@@ -11,6 +11,9 @@ import {
   EyeOff,
 } from "lucide-react";
 
+import AuthFooter from "../components/AuthFooter";
+import ThemePicker from "../components/ThemePicker";
+
 export default function Register() {
   const navigate = useNavigate();
 
@@ -83,11 +86,15 @@ export default function Register() {
 
   return (
     <div className="auth-page">
-      <Link to="/" className="auth-brand">
-        <Sparkles size={30} />
-        <span>AI Creative Studio</span>
-      </Link>
+      <header className="auth-topbar">
+        <Link to="/" className="auth-brand">
+          <Sparkles size={28} />
+          <span>AI Creative Studio</span>
+        </Link>
+        <ThemePicker />
+      </header>
 
+      <div className="auth-page-body">
       <div className="auth-card">
         <div className="auth-heading">
           <div className="auth-icon">
@@ -192,6 +199,9 @@ export default function Register() {
           ← Back to Home
         </Link>
       </div>
+      </div>
+
+      <AuthFooter />
     </div>
   );
 }

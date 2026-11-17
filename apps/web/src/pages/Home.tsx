@@ -10,6 +10,8 @@ import {
   Zap,
 } from "lucide-react";
 
+import ThemePicker from "../components/ThemePicker";
+
 export default function Home() {
   return (
     <div className="landing-page">
@@ -22,6 +24,7 @@ export default function Home() {
         <nav className="landing-nav">
           <a href="#features">Features</a>
           <a href="#about">About</a>
+          <ThemePicker />
           <Link to="/login" className="landing-login">
             Sign In <ArrowRight size={16} />
           </Link>
