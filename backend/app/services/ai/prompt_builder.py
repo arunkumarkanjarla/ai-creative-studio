@@ -3,13 +3,16 @@ Build short, CLIP-safe prompts for Realistic Vision.
 
 CLIP max = 77 tokens.
 - No reference selected  -> use the user prompt only
-- Reference selected     -> apply saved style + user prompt
+- Reference selected     -> interpret the user's edit intent and build
+                            a focused prompt (especially background-only edits)
 """
 
 from __future__ import annotations
 
+from app.services.ai.prompt_intent import plan_reference_edit
 from app.services.ai.prompt_store import (
     DEFAULT_NEGATIVE,
+    find_reference_file,
     load_meta,
 )
 
@@ -52,27 +55,53 @@ def clean_user_text(user_text: str) -> str:
 def build_prompts(
     user_text: str,
     prompt_id: str | None = None,
-) -> tuple[str, str, str | None]:
+) -> tuple[str, str, str | None, dict | None]:
     """
-    Returns: (final_prompt, negative_prompt, used_prompt_id)
+    Returns: (final_prompt, negative_prompt, used_prompt_id, edit_plan_dict)
 
-    Reference is optional:
-    - if prompt_id is missing/invalid -> user text only
-    - if prompt_id exists -> style base + user text
+    edit_plan_dict is set when a reference image is used.
     """
     user_text = clean_user_text(user_text)
     if not user_text:
         user_text = "high quality photo"
 
     style = load_meta(prompt_id) if prompt_id else None
+    has_reference = bool(prompt_id and find_reference_file(prompt_id))
+    edit_plan = None
 
-    if style:
+    if has_reference:
+        plan = plan_reference_edit(user_text)
+        edit_plan = {
+            "mode": plan.mode,
+            "strength": plan.strength,
+            "guidance_scale": plan.guidance_scale,
+            "change_text": plan.change_text,
+            "keep_text": plan.keep_text,
+            "negative_extra": plan.negative_extra,
+            "solid_color": plan.solid_color,
+        }
+
+        if plan.mode == "background":
+            # Put the requested background first so CLIP prioritizes it
+            final = (
+                f"{plan.change_text}, studio portrait photo, "
+                f"{plan.keep_text}, photorealistic, sharp detail"
+            )
+        else:
+            final = (
+                f"{plan.change_text}, {plan.keep_text}, "
+                f"photorealistic, natural lighting"
+            )
+
+        base_negative = (style or {}).get("negative_prompt") or DEFAULT_NEGATIVE
+        negative = f"{plan.negative_extra}, {base_negative}"
+        used_id = prompt_id
+    elif style:
         base = (style.get("base_prompt") or "").strip()
         negative = style.get("negative_prompt") or DEFAULT_NEGATIVE
         used_id = style.get("prompt_id")
 
         if base:
-            # Keep style short + append user request
             if _approx_tokens(user_text) <= 30:
                 final = f"{base}, {user_text}"
             else:
@@ -81,11 +110,10 @@ def build_prompts(
         else:
             final = user_text
     else:
-        # No reference selected: do not force any women/saree style
         used_id = None
         negative = DEFAULT_NEGATIVE
         final = f"{user_text}, RAW photo, natural lighting, high detail"
 
     final = truncate_prompt(final, max_tokens=70)
     negative = truncate_prompt(negative, max_tokens=70)
-    return final, negative, used_id
+    return final, negative, used_id, edit_plan

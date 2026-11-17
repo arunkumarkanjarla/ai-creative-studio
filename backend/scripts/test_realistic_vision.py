@@ -114,13 +114,15 @@ def main() -> None:
     assert_prompt_length(pipe.tokenizer, prompt, NEGATIVE_PROMPT)
 
     print("Compiling model...")
-    # Square-ish portrait helps face detail
-    height, width = 768, 512
+    # App sizes: 512x512 (near-square refs), 512x768 (portrait), 768x512 (landscape)
+    # Face / near-square references (e.g. 879x920) use 512x512
+    width, height = 512, 512
     pipe.reshape(1, height, width, 1)
     pipe.compile()
 
     print(f"Selected prompt: {SELECTED_PROMPT}")
     print(f"Prompt: {prompt}")
+    print(f"Size: {width}x{height}")
     print(f"Seed: {SEED}")
     print("Generating image...")
 
@@ -131,7 +133,7 @@ def main() -> None:
         negative_prompt=NEGATIVE_PROMPT,
         height=height,
         width=width,
-        num_inference_steps=40,
+        num_inference_steps=50,
         guidance_scale=7.0,
         generator=generator,
         num_images_per_prompt=1,

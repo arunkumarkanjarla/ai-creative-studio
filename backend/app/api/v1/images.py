@@ -2,6 +2,7 @@ from datetime import datetime, timezone
 from math import ceil
 from pathlib import Path
 from typing import Literal, Optional
+import threading
 
 from fastapi import (
     APIRouter,
@@ -17,13 +18,14 @@ from fastapi import (
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.db.database import get_db
+from app.db.database import SessionLocal, get_db
 from app.models.generated_image import GeneratedImage
 from app.models.user import User
 from app.models.ai_access import AIGenerationAttempt
 from app.schemas.generated_image import (
-    ImageGenerateRequest,
     ImageGenerateResponse,
+    ImageJobStartResponse,
+    ImageJobStatusResponse,
     ImageHistoryItem,
     ImageHistoryResponse,
     PromptPackItem,
@@ -31,6 +33,13 @@ from app.schemas.generated_image import (
 from app.api.v1.dependencies import get_optional_user, require_admin
 from app.services.access_control import reserve_generation, get_visitor_id
 from app.services.ai.image_service import generate_image_file
+from app.services.ai.job_progress import (
+    complete_job,
+    fail_job,
+    get_job,
+    set_progress,
+    start_job,
+)
 from app.services.ai.prompt_store import (
     create_prompt_pack,
     delete_prompt_pack,
@@ -157,53 +166,42 @@ async def upload_prompt_pack(
     return pack
 
 
-@router.post("/generate", response_model=ImageGenerateResponse)
-def generate_image(
-    data: ImageGenerateRequest,
-    request: Request,
-    response: Response,
-    db: Session = Depends(get_db),
-    current_user: Optional[User] = Depends(get_optional_user),
-):
-    prompt = data.prompt.strip()
-    if not prompt:
-        raise HTTPException(status_code=400, detail="Prompt is required.")
+GUEST_ALLOWED_TOOLS = {"text_to_image", ""}
 
-    if data.prompt_id and not load_meta(data.prompt_id):
-        raise HTTPException(status_code=404, detail="Style pack not found.")
 
-    # Check guest/user limits and create an attempt row
-    attempt = reserve_generation(
-        db=db,
-        request=request,
-        response=response,
-        studio="image",
-        prompt=prompt,
-        current_user=current_user,
-    )
-
-    visitor_id = attempt.visitor_id
-
-    image_row = GeneratedImage(
-        user_id=current_user.id if current_user else None,
-        visitor_id=visitor_id,
-        prompt=prompt,
-        negative_prompt=data.negative_prompt,
-        status="processing",
-        model_name="pending",
-    )
-    db.add(image_row)
-    db.commit()
-    db.refresh(image_row)
-
+def _run_image_job(
+    image_id: int,
+    attempt_id: int,
+    prompt: str,
+    prompt_id: str | None,
+    negative_prompt: str | None,
+    width: int | None = None,
+    height: int | None = None,
+) -> None:
+    """Background worker so the API can return progress while generating."""
+    db = SessionLocal()
     try:
+        start_job(image_id)
+        set_progress(image_id, 2, "Preparing...")
+
+        def on_progress(percent: int, message: str) -> None:
+            set_progress(image_id, percent, message)
+
         result = generate_image_file(
             user_text=prompt,
-            prompt_id=data.prompt_id,
-            negative_prompt=data.negative_prompt,
+            prompt_id=prompt_id,
+            negative_prompt=negative_prompt,
+            width=width,
+            height=height,
+            on_progress=on_progress,
         )
 
-        # Store the final CLIP-safe prompt that was actually used
+        image_row = db.get(GeneratedImage, image_id)
+        attempt = db.get(AIGenerationAttempt, attempt_id)
+        if not image_row:
+            fail_job(image_id, "Image record not found.")
+            return
+
         image_row.prompt = result["final_prompt"]
         image_row.negative_prompt = result["negative_prompt"]
         image_row.image_path = result["file_name"]
@@ -215,41 +213,208 @@ def generate_image(
         image_row.model_name = result["model_name"]
         image_row.status = "completed"
         image_row.updated_at = datetime.now(timezone.utc)
-
         db.add(image_row)
+
+        if attempt:
+            attempt.status = "completed"
+            attempt.completed_at = datetime.now(timezone.utc)
+            db.add(attempt)
+
         db.commit()
         db.refresh(image_row)
 
-        mark_attempt(db, attempt, "completed")
-
-        return ImageGenerateResponse(
-            id=image_row.id,
-            prompt=image_row.prompt,
-            negative_prompt=image_row.negative_prompt,
-            status=image_row.status,
-            image_url=build_image_url(image_row.image_path),
-            model_name=image_row.model_name,
-            image_width=image_row.image_width,
-            image_height=image_row.image_height,
-            generation_time_seconds=image_row.generation_time_seconds,
-            error_message=None,
-            prompt_id=result.get("prompt_id"),
-            created_at=image_row.created_at,
+        complete_job(
+            image_id,
+            {
+                "id": image_row.id,
+                "prompt": image_row.prompt,
+                "negative_prompt": image_row.negative_prompt,
+                "status": image_row.status,
+                "image_url": build_image_url(image_row.image_path),
+                "model_name": image_row.model_name,
+                "image_width": image_row.image_width,
+                "image_height": image_row.image_height,
+                "generation_time_seconds": image_row.generation_time_seconds,
+                "error_message": None,
+                "prompt_id": result.get("prompt_id"),
+                "created_at": image_row.created_at,
+            },
         )
-
     except Exception as error:
-        image_row.status = "failed"
-        image_row.error_message = str(error)
-        image_row.updated_at = datetime.now(timezone.utc)
-        db.add(image_row)
-        db.commit()
+        try:
+            image_row = db.get(GeneratedImage, image_id)
+            attempt = db.get(AIGenerationAttempt, attempt_id)
+            if image_row:
+                image_row.status = "failed"
+                image_row.error_message = str(error)
+                image_row.updated_at = datetime.now(timezone.utc)
+                db.add(image_row)
+            if attempt:
+                attempt.status = "failed"
+                attempt.error_message = str(error)
+                attempt.completed_at = datetime.now(timezone.utc)
+                db.add(attempt)
+            db.commit()
+        except Exception:
+            db.rollback()
+        fail_job(image_id, str(error))
+    finally:
+        db.close()
 
-        mark_attempt(db, attempt, "failed", str(error))
 
+@router.post("/generate", response_model=ImageJobStartResponse)
+async def generate_image(
+    request: Request,
+    response: Response,
+    prompt: str = Form(...),
+    style_title: str = Form(""),
+    prompt_id: str = Form(""),
+    tool: str = Form("text_to_image"),
+    width: int = Form(0),
+    height: int = Form(0),
+    photo_type: str = Form(""),
+    photo_style: str = Form(""),
+    scene: str = Form(""),
+    reference: UploadFile | None = File(None),
+    reference_secondary: UploadFile | None = File(None),
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_optional_user),
+):
+    """
+    Start image generation.
+    Guests may only use text_to_image.
+    Logged-in users can use the full Photo Studio tool set.
+    """
+    prompt_text = prompt.strip()
+    if len(prompt_text) < 3:
+        raise HTTPException(status_code=400, detail="Prompt is required.")
+
+    tool_name = (tool or "text_to_image").strip().lower()
+    if current_user is None and tool_name not in GUEST_ALLOWED_TOOLS:
         raise HTTPException(
-            status_code=500,
-            detail=f"Image generation failed: {error}",
+            status_code=401,
+            detail="Sign in to use this Photo Studio feature.",
         )
+
+    # Optional size hint from the UI (must be multiples of 64)
+    out_w = width if width and width % 64 == 0 else None
+    out_h = height if height and height % 64 == 0 else None
+
+    used_prompt_id: str | None = prompt_id.strip() or None
+    _ = (photo_type, photo_style, scene, reference_secondary)
+
+    # If a reference file is attached, save it now with a prompt_id
+    if reference is not None and reference.filename:
+        content_type = (reference.content_type or "").lower()
+        if not content_type.startswith("image/"):
+            raise HTTPException(
+                status_code=400,
+                detail="Reference must be an image file.",
+            )
+
+        data = await reference.read()
+        if not data:
+            raise HTTPException(status_code=400, detail="Empty reference image.")
+        if len(data) > 8 * 1024 * 1024:
+            raise HTTPException(
+                status_code=400,
+                detail="Reference image must be under 8 MB.",
+            )
+
+        # Auto title from prompt (no UI style-name fields)
+        title = style_title.strip() or prompt_text[:60] or "generated-reference"
+        filename = reference.filename or "reference.jpg"
+        ext = filename.rsplit(".", 1)[-1] if "." in filename else "jpg"
+
+        created_by = "guest"
+        if current_user:
+            created_by = (
+                "admin"
+                if current_user.role == "systemadministrator"
+                else f"user:{current_user.id}"
+            )
+
+        pack = create_prompt_pack(
+            title=title,
+            description=f"Saved during generate: {prompt_text[:120]}",
+            base_prompt=prompt_text,
+            negative_prompt=None,
+            image_bytes=data,
+            image_ext=ext,
+            created_by=created_by,
+        )
+        used_prompt_id = pack["prompt_id"]
+
+    elif used_prompt_id and not load_meta(used_prompt_id):
+        raise HTTPException(status_code=404, detail="Style pack not found.")
+
+    attempt = reserve_generation(
+        db=db,
+        request=request,
+        response=response,
+        studio="image",
+        prompt=prompt_text,
+        current_user=current_user,
+    )
+
+    image_row = GeneratedImage(
+        user_id=current_user.id if current_user else None,
+        visitor_id=attempt.visitor_id,
+        prompt=prompt_text,
+        negative_prompt=None,
+        status="processing",
+        model_name="pending",
+    )
+    db.add(image_row)
+    db.commit()
+    db.refresh(image_row)
+
+    start_job(image_row.id)
+    set_progress(image_row.id, 1, "Queued...")
+
+    worker = threading.Thread(
+        target=_run_image_job,
+        args=(
+            image_row.id,
+            attempt.id,
+            prompt_text,
+            used_prompt_id,
+            None,
+            out_w,
+            out_h,
+        ),
+        daemon=True,
+    )
+    worker.start()
+
+    return ImageJobStartResponse(
+        job_id=image_row.id,
+        status="processing",
+        progress=1,
+        message="Queued...",
+    )
+
+
+@router.get("/jobs/{job_id}", response_model=ImageJobStatusResponse)
+def get_generate_job_status(job_id: int):
+    """Poll generation progress (0-100%)."""
+    job = get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found.")
+
+    result = None
+    if job.get("result"):
+        result = ImageGenerateResponse(**job["result"])
+
+    return ImageJobStatusResponse(
+        job_id=job_id,
+        status=job["status"],
+        progress=job["progress"],
+        message=job.get("message") or "",
+        image_url=job.get("image_url"),
+        error=job.get("error"),
+        result=result,
+    )
 
 
 @router.get("/history", response_model=ImageHistoryResponse)
@@ -344,6 +509,7 @@ def get_image_history(
 def get_admin_image_history(
     prompt: str | None = Query(default=None, max_length=2000),
     status: Literal["pending", "processing", "completed", "failed"] | None = None,
+    created_by: Literal["all", "guest", "user"] = Query(default="all"),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
     db: Session = Depends(get_db),
@@ -363,6 +529,13 @@ def get_admin_image_history(
     if status:
         query = query.where(GeneratedImage.status == status)
         count_query = count_query.where(GeneratedImage.status == status)
+
+    if created_by == "guest":
+        query = query.where(GeneratedImage.user_id.is_(None))
+        count_query = count_query.where(GeneratedImage.user_id.is_(None))
+    elif created_by == "user":
+        query = query.where(GeneratedImage.user_id.is_not(None))
+        count_query = count_query.where(GeneratedImage.user_id.is_not(None))
 
     total = db.scalar(count_query) or 0
 

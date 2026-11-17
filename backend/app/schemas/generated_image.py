@@ -27,6 +27,23 @@ class ImageGenerateResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class ImageJobStartResponse(BaseModel):
+    job_id: int
+    status: str
+    progress: int = 0
+    message: str = "Starting..."
+
+
+class ImageJobStatusResponse(BaseModel):
+    job_id: int
+    status: str
+    progress: int
+    message: str = ""
+    image_url: str | None = None
+    error: str | None = None
+    result: ImageGenerateResponse | None = None
+
+
 class PromptPackItem(BaseModel):
     prompt_id: str
     title: str

@@ -359,6 +359,63 @@
     gap: 12px;
     margin-top: 25px;
   }
+
+  .admin-filters {
+    display: grid;
+    grid-template-columns: 2fr 1fr 1fr 0.8fr auto;
+    gap: 14px;
+    align-items: end;
+    margin: 18px 0 20px;
+    padding: 16px;
+    border: 1px solid #293149;
+    border-radius: 12px;
+    background: #0f172a;
+  }
+
+  .admin-filters label {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    color: #cbd5e1;
+    font-size: 13px;
+  }
+
+  .admin-filters input,
+  .admin-filters select {
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid #293149;
+    border-radius: 8px;
+    background: #111827;
+    color: #e2e8f0;
+  }
+
+  .admin-filter-actions {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+
+  .pagination-bar {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    margin-top: 20px;
+    color: #cbd5e1;
+  }
+
+  @media (max-width: 1000px) {
+    .admin-filters {
+      grid-template-columns: 1fr 1fr;
+    }
+  }
+
+  @media (max-width: 640px) {
+    .admin-filters {
+      grid-template-columns: 1fr;
+    }
+  }
   
   .table-container {
     overflow-x: auto;
@@ -445,17 +502,54 @@
 
   .reference-preview {
     display: flex;
-    align-items: center;
-    gap: 14px;
-    margin: 10px 0 18px;
+    align-items: flex-start;
+    margin: 14px 0 0;
+  }
+
+  .progress-box {
+    margin-top: 18px;
+    padding: 14px;
+    border: 1px solid #293149;
+    border-radius: 10px;
+    background: #0b1220;
+  }
+
+  .progress-top {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 10px;
+    color: #cbd5e1;
+    font-size: 14px;
+  }
+
+  .progress-top strong {
+    color: #a78bfa;
+  }
+
+  .progress-track {
+    width: 100%;
+    height: 10px;
+    border-radius: 999px;
+    background: #1f2937;
+    overflow: hidden;
+  }
+
+  .progress-fill {
+    height: 100%;
+    border-radius: 999px;
+    background: linear-gradient(90deg, #7c3aed, #a78bfa);
+    transition: width 0.35s ease;
   }
 
   .reference-preview img {
-    width: 84px;
-    height: 84px;
-    object-fit: cover;
+    width: 100%;
+    max-width: 280px;
+    max-height: 320px;
+    object-fit: contain;
     border-radius: 10px;
     border: 1px solid #293149;
+    background: #0b1220;
   }
 
   .reference-preview small {
@@ -1105,7 +1199,331 @@
   }
 
   .public-studio-content {
-    max-width: 1000px;
+    max-width: 1400px;
     margin: 0 auto;
-    padding: 40px 7%;
+    padding: 28px 4%;
+  }
+
+  /* ChatGPT-style generation progress */
+  .gen-progress {
+    margin-top: 18px;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+  }
+
+  .gen-progress-card {
+    position: relative;
+    width: min(220px, 100%);
+    aspect-ratio: 1;
+    padding: 14px;
+    border-radius: 18px;
+    background: #050505;
+    border: 1px solid #1f2937;
+    box-shadow: inset 0 0 0 1px rgba(59, 130, 246, 0.08);
+  }
+
+  .gen-progress-grid {
+    display: grid;
+    gap: 7px;
+    width: 100%;
+    height: 100%;
+  }
+
+  .gen-progress-dot {
+    width: 100%;
+    aspect-ratio: 1;
+    border-radius: 999px;
+    background: #1e3a5f;
+    opacity: 0.25;
+    transition: opacity 0.25s ease, transform 0.25s ease, background 0.25s ease;
+  }
+
+  .gen-progress-dot.is-on {
+    background: #3b82f6;
+    opacity: 0.95;
+    animation: gen-dot-pulse 1.4s ease-in-out infinite;
+  }
+
+  @keyframes gen-dot-pulse {
+    0%,
+    100% {
+      filter: brightness(0.9);
+    }
+    50% {
+      filter: brightness(1.35);
+    }
+  }
+
+  .gen-progress-badge {
+    position: absolute;
+    right: 12px;
+    bottom: 12px;
+    padding: 5px 10px;
+    border-radius: 999px;
+    background: #111827;
+    border: 1px solid #1f2937;
+    color: #60a5fa;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+  }
+
+  .gen-progress-message {
+    margin: 0;
+    color: #94a3b8;
+    font-size: 13px;
+  }
+
+  /* Photo Studio dashboard */
+  .photo-studio-top {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    align-items: flex-start;
+    margin-bottom: 18px;
+  }
+
+  .photo-studio-signin {
+    white-space: nowrap;
+  }
+
+  .photo-studio-layout {
+    display: grid;
+    grid-template-columns: 220px minmax(0, 1fr) 250px;
+    gap: 16px;
+    align-items: start;
+  }
+
+  .photo-tool-nav,
+  .photo-settings,
+  .photo-main-card,
+  .photo-result {
+    background: #111827;
+    border: 1px solid #293149;
+    border-radius: 14px;
+  }
+
+  .photo-tool-nav,
+  .photo-settings {
+    padding: 14px;
+  }
+
+  .photo-tool-nav h4,
+  .photo-settings h4 {
+    margin: 0 0 12px;
+    color: #a78bfa;
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+
+  .photo-tool-nav ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .photo-tool-btn {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 10px 12px;
+    border-radius: 10px;
+    border: 1px solid transparent;
+    background: transparent;
+    color: #cbd5e1;
+    cursor: pointer;
+    text-align: left;
+  }
+
+  .photo-tool-btn em {
+    font-style: normal;
+    font-size: 10px;
+    padding: 2px 6px;
+    border-radius: 999px;
+    background: #7c3aed;
+    color: white;
+  }
+
+  .photo-tool-btn.is-active {
+    background: #1e1b4b;
+    border-color: #4c1d95;
+    color: #e9d5ff;
+  }
+
+  .photo-tool-btn.is-locked {
+    opacity: 0.7;
+  }
+
+  .photo-workspace {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    min-width: 0;
+  }
+
+  .photo-quick-tabs,
+  .photo-chip-wrap,
+  .photo-option-grid,
+  .photo-upload-grid,
+  .photo-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .photo-chip {
+    border: 1px solid #334155;
+    background: #0b1220;
+    color: #cbd5e1;
+    border-radius: 999px;
+    padding: 8px 12px;
+    cursor: pointer;
+  }
+
+  .photo-chip.is-active {
+    background: #4c1d95;
+    border-color: #7c3aed;
+    color: white;
+  }
+
+  .photo-main-card {
+    padding: 18px;
+  }
+
+  .photo-tool-title {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+    margin-bottom: 14px;
+    color: #a78bfa;
+  }
+
+  .photo-tool-title h3 {
+    margin: 0;
+    color: #f8fafc;
+  }
+
+  .photo-tool-title p {
+    margin: 4px 0 0;
+    color: #94a3b8;
+    font-size: 13px;
+  }
+
+  .photo-main-card label {
+    display: block;
+    color: #cbd5e1;
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  .photo-main-card textarea,
+  .photo-upload-box input[type="file"] {
+    display: block;
+    width: 100%;
+    margin: 8px 0 14px;
+    padding: 12px;
+    background: #0b1220;
+    color: white;
+    border: 1px solid #374151;
+    border-radius: 8px;
+  }
+
+  .photo-upload-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-bottom: 12px;
+  }
+
+  .photo-upload-box {
+    border: 1px dashed #475569;
+    border-radius: 12px;
+    padding: 14px;
+    background: #0b1220;
+    color: #cbd5e1;
+  }
+
+  .photo-upload-box strong {
+    display: block;
+    margin: 8px 0;
+    font-size: 13px;
+  }
+
+  .photo-upload-box img {
+    width: 100%;
+    max-height: 180px;
+    object-fit: contain;
+    border-radius: 8px;
+    margin-top: 8px;
+    background: #020617;
+  }
+
+  .photo-actions {
+    margin-top: 8px;
+  }
+
+  .photo-result {
+    padding: 16px;
+  }
+
+  .photo-result img {
+    width: 100%;
+    max-height: 520px;
+    object-fit: contain;
+    border-radius: 12px;
+    background: #020617;
+  }
+
+  .photo-settings-block + .photo-settings-block {
+    margin-top: 18px;
+  }
+
+  .photo-option-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+
+  .photo-option {
+    border: 1px solid #334155;
+    background: #0b1220;
+    color: #cbd5e1;
+    border-radius: 10px;
+    padding: 10px;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .photo-option strong {
+    display: block;
+    color: #f8fafc;
+    margin-bottom: 4px;
+  }
+
+  .photo-option span {
+    font-size: 11px;
+    color: #94a3b8;
+  }
+
+  .photo-option.is-active {
+    border-color: #7c3aed;
+    background: #1e1b4b;
+  }
+
+  @media (max-width: 1100px) {
+    .photo-studio-layout {
+      grid-template-columns: 1fr;
+    }
+
+    .photo-upload-grid {
+      grid-template-columns: 1fr;
+    }
   }

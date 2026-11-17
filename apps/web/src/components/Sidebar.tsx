@@ -61,7 +61,7 @@ export default function Sidebar() {
         {hasAccess("image") && (
           <NavLink to="/studios/image">
             <Image size={19} />
-            Image Studio
+            Photo Studio
           </NavLink>
         )}
 

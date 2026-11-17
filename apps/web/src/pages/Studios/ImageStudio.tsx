@@ -1,7 +1,24 @@
-import { useEffect, useState, type FormEvent } from "react";
-import { Image } from "lucide-react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { Link } from "react-router-dom";
+import {
+  Image as ImageIcon,
+  Lock,
+  Sparkles,
+  Upload,
+} from "lucide-react";
 
-import { apiRequest, mediaUrl, MEDIA_BASE_URL } from "../../services/api";
+import GenerationProgress from "../../components/GenerationProgress";
+import { useAuth } from "../../context/AuthContext";
+import { apiRequest, mediaUrl } from "../../services/api";
+import {
+  CREATE_TOOLS,
+  DIMENSIONS,
+  PHOTO_STYLES,
+  PHOTO_TYPES,
+  SCENES,
+  buildToolPrompt,
+  type StudioToolId,
+} from "./photoStudioConfig";
 
 interface GeneratedItem {
   id: number;
@@ -18,32 +35,71 @@ interface HistoryResponse {
   items: GeneratedItem[];
 }
 
-interface PromptPack {
-  prompt_id: string;
-  title: string;
-  description: string;
-  base_prompt: string;
-  reference_url: string | null;
+interface JobStartResponse {
+  job_id: number;
+  status: string;
+  progress: number;
+  message: string;
 }
 
-const NEW_STYLE_VALUE = "__new__";
-const NO_REFERENCE = "";
+interface JobStatusResponse {
+  job_id: number;
+  status: string;
+  progress: number;
+  message: string;
+  image_url: string | null;
+  error: string | null;
+  result: GeneratedItem | null;
+}
+
+function useObjectUrl(file: File | null) {
+  const [url, setUrl] = useState<string | null>(null);
+  useEffect(() => {
+    if (!file) {
+      setUrl(null);
+      return;
+    }
+    const next = URL.createObjectURL(file);
+    setUrl(next);
+    return () => URL.revokeObjectURL(next);
+  }, [file]);
+  return url;
+}
 
 export default function ImageStudio() {
-  const [prompt, setPrompt] = useState(
-    "a peaceful mountain landscape at sunrise, clear sky, realistic photo"
-  );
-  const [packs, setPacks] = useState<PromptPack[]>([]);
-  const [selectedReferenceId, setSelectedReferenceId] = useState(NO_REFERENCE);
-  const [styleTitle, setStyleTitle] = useState(NEW_STYLE_VALUE);
-  const [customTitle, setCustomTitle] = useState("");
+  const { user } = useAuth();
+  const isLoggedIn = Boolean(user);
+
+  const [toolId, setToolId] = useState<StudioToolId>("text_to_image");
+  const [prompt, setPrompt] = useState("");
+  const [image1, setImage1] = useState<File | null>(null);
+  const [image2, setImage2] = useState<File | null>(null);
+  const [image1Key, setImage1Key] = useState(0);
+  const [image2Key, setImage2Key] = useState(0);
+  const [dimensionId, setDimensionId] = useState<(typeof DIMENSIONS)[number]["id"]>("3:4");
+  const [photoType, setPhotoType] = useState<(typeof PHOTO_TYPES)[number]["id"]>("album");
+  const [style, setStyle] = useState<(typeof PHOTO_STYLES)[number]>("Realistic");
+  const [scene, setScene] = useState<(typeof SCENES)[number]>("Beach");
+
   const [loading, setLoading] = useState(false);
-  const [uploading, setUploading] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [progressMessage, setProgressMessage] = useState("");
   const [error, setError] = useState("");
-  const [uploadError, setUploadError] = useState("");
   const [latest, setLatest] = useState<GeneratedItem | null>(null);
   const [history, setHistory] = useState<GeneratedItem[]>([]);
-  const [uploadFile, setUploadFile] = useState<File | null>(null);
+
+  const image1Preview = useObjectUrl(image1);
+  const image2Preview = useObjectUrl(image2);
+
+  const tool = useMemo(
+    () => CREATE_TOOLS.find((item) => item.id === toolId) || CREATE_TOOLS[0],
+    [toolId]
+  );
+
+  const dimension = useMemo(
+    () => DIMENSIONS.find((item) => item.id === dimensionId) || DIMENSIONS[1],
+    [dimensionId]
+  );
 
   async function loadHistory() {
     try {
@@ -52,97 +108,112 @@ export default function ImageStudio() {
       );
       setHistory(data.items);
     } catch {
-      // ignore for first-time guests
-    }
-  }
-
-  async function loadPacks() {
-    try {
-      const data = await apiRequest<PromptPack[]>("/images/prompts");
-      setPacks(data);
-    } catch {
-      // optional for guests
+      // guests may have empty history
     }
   }
 
   useEffect(() => {
-    loadPacks();
     loadHistory();
   }, []);
 
-  const selectedPack =
-    styleTitle !== NEW_STYLE_VALUE
-      ? packs.find((pack) => pack.prompt_id === styleTitle)
-      : undefined;
-
-  async function handleUpload(event: FormEvent) {
-    event.preventDefault();
-
-    const title =
-      styleTitle === NEW_STYLE_VALUE
-        ? customTitle.trim()
-        : selectedPack?.title || "";
-
-    if (!uploadFile || !title) {
-      setUploadError("Please choose a style title and a reference image.");
+  function selectTool(next: StudioToolId) {
+    const selected = CREATE_TOOLS.find((item) => item.id === next);
+    if (!selected) return;
+    if (!selected.guestAllowed && !isLoggedIn) {
+      setError("Sign in to use this Photo Studio feature.");
       return;
     }
+    setError("");
+    setToolId(next);
+  }
 
-    setUploading(true);
-    setUploadError("");
+  function clearForm() {
+    setPrompt("");
+    setImage1(null);
+    setImage2(null);
+    setImage1Key((k) => k + 1);
+    setImage2Key((k) => k + 1);
+  }
 
-    try {
-      const form = new FormData();
-      form.append("title", title);
-      form.append(
-        "description",
-        selectedPack?.description ||
-          "User uploaded reference for text-to-image style"
+  async function pollJob(jobId: number): Promise<GeneratedItem> {
+    for (;;) {
+      const status = await apiRequest<JobStatusResponse>(
+        `/images/jobs/${jobId}`
       );
-      form.append("reference", uploadFile);
+      setProgress(status.progress);
+      setProgressMessage(status.message || "Generating...");
 
-      const created = await apiRequest<PromptPack>("/images/prompts", {
-        method: "POST",
-        body: form,
-      });
-
-      setCustomTitle("");
-      setUploadFile(null);
-      await loadPacks();
-      setStyleTitle(created.prompt_id);
-    } catch (err) {
-      setUploadError(
-        err instanceof Error ? err.message : "Unable to upload reference."
-      );
-    } finally {
-      setUploading(false);
+      if (status.status === "completed" && status.result) {
+        return status.result;
+      }
+      if (status.status === "failed") {
+        throw new Error(status.error || "Image generation failed.");
+      }
+      await new Promise((resolve) => setTimeout(resolve, 1000));
     }
   }
 
   async function handleGenerate(event: FormEvent) {
     event.preventDefault();
 
-    const text = prompt.trim();
-    if (text.length < 3) {
-      setError("Please enter a longer description.");
+    if (!tool.guestAllowed && !isLoggedIn) {
+      setError("Sign in to use this Photo Studio feature.");
+      return;
+    }
+
+    const finalPrompt = buildToolPrompt(tool.id, prompt, style, scene);
+    if (finalPrompt.trim().length < 3) {
+      setError("Please enter a prompt describing what you want.");
+      return;
+    }
+
+    if (tool.needsImage1 && !image1) {
+      setError("Upload Image 1 to continue.");
+      return;
+    }
+    if (tool.needsImage2 && !image2) {
+      setError("Upload Image 2 to continue.");
       return;
     }
 
     setLoading(true);
+    setProgress(1);
+    setProgressMessage("Starting...");
     setError("");
     setLatest(null);
 
     try {
-      const result = await apiRequest<GeneratedItem>("/images/generate", {
+      const form = new FormData();
+      form.append("prompt", finalPrompt);
+      form.append("tool", tool.id);
+      form.append("width", String(dimension.width));
+      form.append("height", String(dimension.height));
+      form.append("photo_type", photoType);
+      form.append("photo_style", style);
+      form.append("scene", scene);
+
+      // Primary reference is Image 1; for text-to-image optional Image 1 works as style ref
+      const reference = image1 || image2;
+      if (reference) {
+        form.append("reference", reference);
+      }
+      if (image2 && tool.needsImage2) {
+        form.append("reference_secondary", image2);
+      }
+
+      const started = await apiRequest<JobStartResponse>("/images/generate", {
         method: "POST",
-        body: JSON.stringify({
-          prompt: text,
-          // Optional: only send when user picks a reference style
-          prompt_id: selectedReferenceId || null,
-        }),
+        body: form,
       });
 
+      setProgress(started.progress || 1);
+      setProgressMessage(started.message || "Queued...");
+
+      const result = await pollJob(started.job_id);
       setLatest(result);
+      setProgress(100);
+      setProgressMessage("Done");
+      clearForm();
       await loadHistory();
     } catch (err) {
       setError(
@@ -154,163 +225,267 @@ export default function ImageStudio() {
   }
 
   return (
-    <div className="content-page">
-      <div className="studio-heading">
-        <Image size={36} />
-        <div>
-          <h1>Image Studio</h1>
-          <p>Create images and manage face/style references.</p>
+    <div className="photo-studio">
+      <div className="photo-studio-top">
+        <div className="studio-heading">
+          <ImageIcon size={32} />
+          <div>
+            <h1>Photo Studio</h1>
+            <p>
+              {isLoggedIn
+                ? "Full AI photo editing and generation tools."
+                : "Guests can use Text to Image. Sign in for the full Photo Studio."}
+            </p>
+          </div>
         </div>
+        {!isLoggedIn && (
+          <Link to="/login" className="primary-button photo-studio-signin">
+            Sign in for all features
+          </Link>
+        )}
       </div>
 
-      <div className="studio-panels">
-        <form className="generation-card" onSubmit={handleGenerate}>
-          <h3>Text to Image</h3>
+      <div className="photo-studio-layout">
+        <aside className="photo-tool-nav">
+          <h4>Create & Edit</h4>
+          <ul>
+            {CREATE_TOOLS.map((item) => {
+              const locked = !item.guestAllowed && !isLoggedIn;
+              return (
+                <li key={item.id}>
+                  <button
+                    type="button"
+                    className={`photo-tool-btn${
+                      toolId === item.id ? " is-active" : ""
+                    }${locked ? " is-locked" : ""}`}
+                    onClick={() => selectTool(item.id)}
+                  >
+                    <span>{item.label}</span>
+                    {item.badge && <em>{item.badge}</em>}
+                    {locked && <Lock size={14} />}
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        </aside>
 
-          <label>
-            Reference style (optional)
-            <select
-              value={selectedReferenceId}
-              onChange={(e) => setSelectedReferenceId(e.target.value)}
-              disabled={loading}
-            >
-              <option value={NO_REFERENCE}>None — use prompt only</option>
-              {packs.map((pack) => (
-                <option key={pack.prompt_id} value={pack.prompt_id}>
-                  {pack.title}
-                </option>
-              ))}
-            </select>
-          </label>
+        <section className="photo-workspace">
+          <div className="photo-quick-tabs">
+            {CREATE_TOOLS.slice(0, 4).map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                className={`photo-chip${toolId === item.id ? " is-active" : ""}`}
+                onClick={() => selectTool(item.id)}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
 
-          <label>
-            Your prompt
-            <textarea
-              placeholder="Describe any image you want to create..."
-              rows={6}
-              value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
-              disabled={loading}
-            />
-          </label>
+          <form className="photo-main-card" onSubmit={handleGenerate}>
+            <div className="photo-tool-title">
+              <Sparkles size={18} />
+              <div>
+                <h3>{tool.label}</h3>
+                <p>{tool.description}</p>
+              </div>
+            </div>
 
-          {error && <div className="error-message">{error}</div>}
-
-          <button className="primary-button" type="submit" disabled={loading}>
-            {loading ? "Generating... please wait" : "Generate Image"}
-          </button>
-
-          {loading && (
-            <p className="generation-hint">
-              First run may take longer while the model loads into memory.
-            </p>
-          )}
-        </form>
-
-        <form className="generation-card" onSubmit={handleUpload}>
-          <h3>Add reference style</h3>
-          <p className="muted-text">
-            Upload a face/style reference. Saved under
-            reference_images/&lt;prompt_id&gt;/.
-          </p>
-
-          <label>
-            Style title
-            <select
-              value={styleTitle}
-              onChange={(e) => setStyleTitle(e.target.value)}
-              disabled={uploading}
-            >
-              <option value={NEW_STYLE_VALUE}>Create new style...</option>
-              {packs.map((pack) => (
-                <option key={pack.prompt_id} value={pack.prompt_id}>
-                  {pack.title}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          {styleTitle === NEW_STYLE_VALUE && (
             <label>
-              New style name
-              <input
-                type="text"
-                value={customTitle}
-                onChange={(e) => setCustomTitle(e.target.value)}
-                placeholder="Example: Soft smile saree face"
-                disabled={uploading}
+              Your prompt
+              <textarea
+                rows={5}
+                placeholder="Describe the image you want to create..."
+                value={prompt}
+                onChange={(e) => setPrompt(e.target.value)}
+                disabled={loading}
               />
             </label>
-          )}
 
-          {selectedPack?.reference_url && (
-            <div className="reference-preview">
-              <img
-                src={`${MEDIA_BASE_URL}${selectedPack.reference_url}`}
-                alt={selectedPack.title}
+            {(tool.needsImage1 || tool.id === "text_to_image") && (
+              <div className="photo-upload-grid">
+                <label className="photo-upload-box">
+                  <Upload size={18} />
+                  <strong>
+                    {tool.needsImage2
+                      ? "Upload Image 1 (Person / Scene)"
+                      : tool.id === "text_to_image"
+                        ? "Reference image (optional)"
+                        : "Upload Image 1"}
+                  </strong>
+                  <input
+                    key={image1Key}
+                    type="file"
+                    accept="image/*"
+                    disabled={loading}
+                    onChange={(e) => setImage1(e.target.files?.[0] || null)}
+                  />
+                  {image1Preview && (
+                    <img src={image1Preview} alt="Image 1 preview" />
+                  )}
+                </label>
+
+                {tool.needsImage2 && (
+                  <label className="photo-upload-box">
+                    <Upload size={18} />
+                    <strong>Upload Image 2 (Person / Face)</strong>
+                    <input
+                      key={image2Key}
+                      type="file"
+                      accept="image/*"
+                      disabled={loading}
+                      onChange={(e) => setImage2(e.target.files?.[0] || null)}
+                    />
+                    {image2Preview && (
+                      <img src={image2Preview} alt="Image 2 preview" />
+                    )}
+                  </label>
+                )}
+              </div>
+            )}
+
+            {error && <div className="error-message">{error}</div>}
+
+            <div className="photo-actions">
+              <button className="primary-button" type="submit" disabled={loading}>
+                {loading ? "Generating..." : "Generate Image"}
+              </button>
+              <button
+                className="secondary-button"
+                type="button"
+                disabled={loading}
+                onClick={clearForm}
+              >
+                Clear
+              </button>
+            </div>
+
+            {loading && (
+              <GenerationProgress
+                progress={progress}
+                message={progressMessage || "Generating..."}
               />
-              <small>{selectedPack.description}</small>
+            )}
+          </form>
+
+          {latest?.image_url && !loading && (
+            <div className="photo-result">
+              <h3>Latest result</h3>
+              <img src={mediaUrl(latest.image_url) || ""} alt={latest.prompt} />
+              <p>{latest.prompt}</p>
+              {latest.generation_time_seconds != null && (
+                <small>
+                  Generated in {latest.generation_time_seconds} seconds
+                </small>
+              )}
             </div>
           )}
 
-          <label>
-            Reference image
-            <input
-              type="file"
-              accept="image/*"
-              onChange={(e) => setUploadFile(e.target.files?.[0] || null)}
-              disabled={uploading}
-            />
-          </label>
-
-          {uploadError && <div className="error-message">{uploadError}</div>}
-
-          <button
-            className="secondary-button"
-            type="submit"
-            disabled={uploading}
-          >
-            {uploading ? "Saving..." : "Save Reference Style"}
-          </button>
-        </form>
-      </div>
-
-      {latest?.image_url && (
-        <div className="generation-result">
-          <h3>Latest result</h3>
-          <img src={mediaUrl(latest.image_url) || ""} alt={latest.prompt} />
-          <p>{latest.prompt}</p>
-          {latest.generation_time_seconds != null && (
-            <small>
-              Generated in {latest.generation_time_seconds} seconds
-            </small>
-          )}
-        </div>
-      )}
-
-      <div className="history-section">
-        <h3>Your recent images</h3>
-
-        {history.length === 0 ? (
-          <p className="muted-text">No images yet. Generate your first one.</p>
-        ) : (
-          <div className="history-grid">
-            {history.map((item) => (
-              <article className="history-card" key={item.id}>
-                {item.image_url ? (
-                  <img
-                    src={mediaUrl(item.image_url) || ""}
-                    alt={item.prompt}
-                  />
-                ) : (
-                  <div className="history-empty">{item.status}</div>
-                )}
-                <p>{item.prompt}</p>
-                <small>{new Date(item.created_at).toLocaleString()}</small>
-              </article>
-            ))}
+          <div className="history-section">
+            <h3>Gallery</h3>
+            {history.length === 0 ? (
+              <p className="muted-text">No images yet. Generate your first one.</p>
+            ) : (
+              <div className="history-grid">
+                {history.map((item) => (
+                  <article className="history-card" key={item.id}>
+                    {item.image_url ? (
+                      <img
+                        src={mediaUrl(item.image_url) || ""}
+                        alt={item.prompt}
+                      />
+                    ) : (
+                      <div className="history-empty">{item.status}</div>
+                    )}
+                    <p>{item.prompt}</p>
+                    <small>{new Date(item.created_at).toLocaleString()}</small>
+                  </article>
+                ))}
+              </div>
+            )}
           </div>
-        )}
+        </section>
+
+        <aside className="photo-settings">
+          <div className="photo-settings-block">
+            <h4>Image Dimensions</h4>
+            <div className="photo-option-grid">
+              {DIMENSIONS.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  className={`photo-option${
+                    dimensionId === item.id ? " is-active" : ""
+                  }`}
+                  onClick={() => setDimensionId(item.id)}
+                  disabled={loading}
+                >
+                  <strong>{item.label}</strong>
+                  <span>{item.hint}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="photo-settings-block">
+            <h4>Photo Type</h4>
+            <div className="photo-option-grid">
+              {PHOTO_TYPES.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  className={`photo-option${
+                    photoType === item.id ? " is-active" : ""
+                  }`}
+                  onClick={() => setPhotoType(item.id)}
+                  disabled={loading || !isLoggedIn}
+                >
+                  <strong>{item.label}</strong>
+                  <span>{item.hint}</span>
+                </button>
+              ))}
+            </div>
+            {!isLoggedIn && (
+              <p className="muted-text">Sign in to use photo type presets.</p>
+            )}
+          </div>
+
+          <div className="photo-settings-block">
+            <h4>Photo Style</h4>
+            <div className="photo-chip-wrap">
+              {PHOTO_STYLES.map((item) => (
+                <button
+                  key={item}
+                  type="button"
+                  className={`photo-chip${style === item ? " is-active" : ""}`}
+                  onClick={() => setStyle(item)}
+                  disabled={loading}
+                >
+                  {item}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="photo-settings-block">
+            <h4>Scene & Theme</h4>
+            <div className="photo-chip-wrap">
+              {SCENES.map((item) => (
+                <button
+                  key={item}
+                  type="button"
+                  className={`photo-chip${scene === item ? " is-active" : ""}`}
+                  onClick={() => setScene(item)}
+                  disabled={loading || (!isLoggedIn && toolId !== "text_to_image")}
+                >
+                  {item}
+                </button>
+              ))}
+            </div>
+          </div>
+        </aside>
       </div>
     </div>
   );
