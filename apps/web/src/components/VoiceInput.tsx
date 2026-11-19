@@ -83,7 +83,7 @@ export default function VoiceInput({
       }
 
       silenceTimeoutRef.current = setTimeout(() => {
-        if (recognitionRef.current && isListening) {
+        if (recognitionRef.current) {
           recognitionRef.current.stop();
         }
       }, 3000);
@@ -134,7 +134,7 @@ export default function VoiceInput({
       }
       stopMediaStream();
     };
-  }, [language, onTranscript, isListening]);
+  }, [language]);
 
   const checkMicrophonePermission = async () => {
     if (!navigator.permissions) {
