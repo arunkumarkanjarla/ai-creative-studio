@@ -11,6 +11,7 @@ import {
 
 import { useAuth } from "../../context/AuthContext";
 import { apiRequest, mediaUrl } from "../../services/api";
+import VoiceInput from "../../components/VoiceInput";
 import {
   CREATE_TOOLS,
   DIMENSIONS,
@@ -370,13 +371,21 @@ export default function ImageStudio() {
 
             <label>
               Your prompt
-              <textarea
-                rows={5}
-                placeholder="Describe the image you want to create..."
-                value={prompt}
-                onChange={(e) => setPrompt(e.target.value)}
-                disabled={loading}
-              />
+              <div className="prompt-with-voice">
+                <textarea
+                  rows={5}
+                  placeholder="Describe the image you want to create..."
+                  value={prompt}
+                  onChange={(e) => setPrompt(e.target.value)}
+                  disabled={loading}
+                />
+                <VoiceInput
+                  onTranscript={(text) => {
+                    setPrompt((prev) => (prev ? `${prev} ${text}` : text));
+                  }}
+                  language="en-IN"
+                />
+              </div>
             </label>
 
             {(tool.needsImage1 || tool.id === "text_to_image") && (
