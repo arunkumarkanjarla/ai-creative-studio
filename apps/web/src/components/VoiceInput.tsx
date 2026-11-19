@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Mic, MicOff } from "lucide-react";
+import { Mic, MicOff, AlertCircle } from "lucide-react";
 
 interface VoiceInputProps {
   onTranscript: (text: string) => void;
@@ -7,7 +7,6 @@ interface VoiceInputProps {
   className?: string;
 }
 
-// Supported languages
 export const VOICE_LANGUAGES = [
   { code: "en-IN", label: "English (India)" },
   { code: "en-US", label: "English (US)" },
@@ -21,25 +20,32 @@ export const VOICE_LANGUAGES = [
   { code: "ml-IN", label: "മലയാളം (Malayalam)" },
 ] as const;
 
+type PermissionState = "prompt" | "granted" | "denied" | "unsupported";
+
 export default function VoiceInput({
   onTranscript,
   language = "en-IN",
   className = "",
 }: VoiceInputProps) {
   const [isListening, setIsListening] = useState(false);
-  const [isSupported, setIsSupported] = useState(true);
+  const [permissionState, setPermissionState] = useState<PermissionState>("prompt");
   const [error, setError] = useState<string | null>(null);
+  const [useFallback, setUseFallback] = useState(false);
+  
   const recognitionRef = useRef<any>(null);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const silenceTimeoutRef = useRef<number | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
 
   useEffect(() => {
-    // Check for Web Speech API support
     const SpeechRecognition =
       (window as any).SpeechRecognition ||
       (window as any).webkitSpeechRecognition;
 
     if (!SpeechRecognition) {
-      setIsSupported(false);
+      setUseFallback(true);
+      checkMicrophonePermission();
       return;
     }
 
@@ -54,7 +60,6 @@ export default function VoiceInput({
     };
 
     recognition.onresult = (event: any) => {
-      // Clear silence timeout on any result
       if (silenceTimeoutRef.current) {
         clearTimeout(silenceTimeoutRef.current);
       }
@@ -71,14 +76,12 @@ export default function VoiceInput({
         }
       }
 
-      // Send transcript to parent
       if (finalTranscript) {
         onTranscript(finalTranscript.trim());
       } else if (interimTranscript) {
         onTranscript(interimTranscript.trim());
       }
 
-      // Set silence timeout (3 seconds)
       silenceTimeoutRef.current = setTimeout(() => {
         if (recognitionRef.current && isListening) {
           recognitionRef.current.stop();
@@ -89,17 +92,22 @@ export default function VoiceInput({
     recognition.onerror = (event: any) => {
       console.error("Speech recognition error:", event.error);
       
-      if (event.error === "not-allowed") {
-        setError("Microphone permission denied. Please allow microphone access.");
-      } else if (event.error === "no-speech") {
-        setError("No speech detected. Please try again.");
-      } else if (event.error === "network") {
-        setError("Network error. Please check your connection.");
-      } else {
-        setError(`Error: ${event.error}`);
-      }
-      
+      const errorMessages: Record<string, string> = {
+        "not-allowed": "Microphone access denied.",
+        "service-not-allowed": "Speech recognition service not available.",
+        "no-speech": "No speech detected.",
+        "network": "Network error. Check your connection.",
+        "audio-capture": "Microphone not available or in use.",
+        "aborted": "Recognition aborted.",
+      };
+
+      setError(errorMessages[event.error] || `Error: ${event.error}`);
       setIsListening(false);
+      
+      if (event.error === "not-allowed" || event.error === "service-not-allowed") {
+        setPermissionState("denied");
+      }
+
       if (silenceTimeoutRef.current) {
         clearTimeout(silenceTimeoutRef.current);
       }
@@ -113,39 +121,186 @@ export default function VoiceInput({
     };
 
     recognitionRef.current = recognition;
+    checkMicrophonePermission();
 
     return () => {
       if (recognitionRef.current) {
-        recognitionRef.current.stop();
+        try {
+          recognitionRef.current.stop();
+        } catch (e) {}
       }
       if (silenceTimeoutRef.current) {
         clearTimeout(silenceTimeoutRef.current);
       }
+      stopMediaStream();
     };
   }, [language, onTranscript, isListening]);
 
-  const toggleListening = () => {
-    if (!recognitionRef.current) return;
+  const checkMicrophonePermission = async () => {
+    if (!navigator.permissions) {
+      setPermissionState("unsupported");
+      return;
+    }
 
-    if (isListening) {
-      recognitionRef.current.stop();
-    } else {
-      try {
-        recognitionRef.current.lang = language;
-        recognitionRef.current.start();
-      } catch (err) {
-        console.error("Failed to start recognition:", err);
-        setError("Failed to start voice recognition.");
-      }
+    try {
+      const result = await navigator.permissions.query({ name: "microphone" as PermissionName });
+      setPermissionState(result.state as PermissionState);
+      
+      result.addEventListener("change", () => {
+        setPermissionState(result.state as PermissionState);
+      });
+    } catch (err) {
+      console.warn("Permissions API not fully supported:", err);
+      setPermissionState("unsupported");
     }
   };
 
-  if (!isSupported) {
+  const requestMicrophoneAccess = async (): Promise<boolean> => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaStreamRef.current = stream;
+      setPermissionState("granted");
+      setError(null);
+      return true;
+    } catch (err: any) {
+      console.error("Microphone access error:", err);
+      
+      if (err.name === "NotAllowedError" || err.name === "PermissionDeniedError") {
+        setPermissionState("denied");
+        setError("Microphone access denied.");
+      } else if (err.name === "NotFoundError") {
+        setError("No microphone found.");
+      } else if (err.name === "NotReadableError") {
+        setError("Microphone is in use by another app.");
+      } else {
+        setError("Could not access microphone.");
+      }
+      
+      return false;
+    }
+  };
+
+  const stopMediaStream = () => {
+    if (mediaStreamRef.current) {
+      mediaStreamRef.current.getTracks().forEach((track) => track.stop());
+      mediaStreamRef.current = null;
+    }
+  };
+
+  const startWebSpeechRecognition = async () => {
+    if (!recognitionRef.current) return false;
+
+    try {
+      recognitionRef.current.lang = language;
+      recognitionRef.current.start();
+      return true;
+    } catch (err) {
+      console.error("Failed to start recognition:", err);
+      setError("Failed to start speech recognition.");
+      return false;
+    }
+  };
+
+  const startFallbackRecording = async () => {
+    if (!mediaStreamRef.current) return false;
+
+    try {
+      audioChunksRef.current = [];
+      const mediaRecorder = new MediaRecorder(mediaStreamRef.current);
+      
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
+      };
+
+      mediaRecorder.onstop = async () => {
+        const audioBlob = new Blob(audioChunksRef.current, { type: "audio/webm" });
+        await transcribeAudio(audioBlob);
+      };
+
+      mediaRecorder.start();
+      mediaRecorderRef.current = mediaRecorder;
+      setIsListening(true);
+      setError(null);
+
+      silenceTimeoutRef.current = setTimeout(() => {
+        if (mediaRecorderRef.current?.state === "recording") {
+          mediaRecorderRef.current.stop();
+        }
+      }, 5000);
+
+      return true;
+    } catch (err) {
+      console.error("Failed to start recording:", err);
+      setError("Failed to start recording.");
+      return false;
+    }
+  };
+
+  const transcribeAudio = async (audioBlob: Blob) => {
+    try {
+      const formData = new FormData();
+      formData.append("audio", audioBlob, "audio.webm");
+      formData.append("language", language.split("-")[0]);
+
+      const response = await fetch("/api/v1/transcribe", {
+        method: "POST",
+        body: formData,
+      });
+
+      if (!response.ok) {
+        throw new Error("Transcription failed");
+      }
+
+      const data = await response.json();
+      if (data.text) {
+        onTranscript(data.text);
+      }
+    } catch (err) {
+      console.error("Transcription error:", err);
+      setError("Transcription failed. Using Web Speech API fallback.");
+      setUseFallback(false);
+    } finally {
+      setIsListening(false);
+    }
+  };
+
+  const toggleListening = async () => {
+    if (isListening) {
+      if (useFallback && mediaRecorderRef.current) {
+        mediaRecorderRef.current.stop();
+      } else if (recognitionRef.current) {
+        recognitionRef.current.stop();
+      }
+      setIsListening(false);
+      return;
+    }
+
+    if (!mediaStreamRef.current) {
+      const hasAccess = await requestMicrophoneAccess();
+      if (!hasAccess) return;
+    }
+
+    if (useFallback) {
+      await startFallbackRecording();
+    } else {
+      await startWebSpeechRecognition();
+    }
+  };
+
+  const retryPermission = async () => {
+    setError(null);
+    setPermissionState("prompt");
+    await toggleListening();
+  };
+
+  if (permissionState === "unsupported" && !navigator.mediaDevices) {
     return (
       <button
         type="button"
         className={`voice-input-button voice-input-unsupported ${className}`}
-        title="Voice input not supported in this browser"
+        title="Voice input requires HTTPS or localhost"
         disabled
       >
         <MicOff size={18} />
@@ -172,12 +327,29 @@ export default function VoiceInput({
         )}
       </button>
       {isListening && (
-        <span className="voice-input-status">Listening...</span>
+        <span className="voice-input-status">
+          {useFallback ? "Recording..." : "Listening..."}
+        </span>
       )}
       {error && (
-        <span className="voice-input-error" role="alert">
-          {error}
-        </span>
+        <div className="voice-input-error" role="alert">
+          <AlertCircle size={14} />
+          <span>{error}</span>
+          {permissionState === "denied" && (
+            <div className="voice-input-help">
+              <p>To enable microphone:</p>
+              <ol>
+                <li>Click the lock/site info icon in address bar</li>
+                <li>Go to Site permissions → Microphone</li>
+                <li>Select "Allow"</li>
+                <li>Reload the page</li>
+              </ol>
+              <button onClick={retryPermission} className="voice-input-retry">
+                Retry
+              </button>
+            </div>
+          )}
+        </div>
       )}
     </div>
   );
