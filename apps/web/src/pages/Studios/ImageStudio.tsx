@@ -48,6 +48,14 @@ interface JobStatusResponse {
   result: GeneratedItem | null;
 }
 
+interface PreviewSampleResponse {
+  preview_url: string | null;
+  key: string;
+  photographer?: string;
+  source?: string;
+  error?: string;
+}
+
 type RunMode = "preview" | "generate";
 
 function useObjectUrl(file: File | null) {
@@ -97,6 +105,7 @@ export default function ImageStudio() {
   const [error, setError] = useState("");
   const [latest, setLatest] = useState<GeneratedItem | null>(null);
   const [previewResult, setPreviewResult] = useState<GeneratedItem | null>(null);
+  const [samplePreviewUrl, setSamplePreviewUrl] = useState<string | null>(null);
 
   const image1Preview = useObjectUrl(image1);
   const image2Preview = useObjectUrl(image2);
@@ -115,6 +124,34 @@ export default function ImageStudio() {
     () => buildToolPrompt(tool.id, prompt, style, scene, photoType),
     [tool.id, prompt, style, scene, photoType]
   );
+
+  // Fetch instant sample preview whenever style, scene, or photoType changes
+  useEffect(() => {
+    async function fetchSamplePreview() {
+      try {
+        const params = new URLSearchParams({
+          style: style,
+          scene: scene,
+          photo_type: photoType,
+        });
+        const response = await apiRequest<PreviewSampleResponse>(
+          `/preview/sample?${params}`
+        );
+        if (response.preview_url) {
+          setSamplePreviewUrl(`http://localhost:8000${response.preview_url}`);
+        } else {
+          setSamplePreviewUrl(null);
+        }
+      } catch (err) {
+        console.error("Failed to fetch sample preview:", err);
+        setSamplePreviewUrl(null);
+      }
+    }
+    
+    if (isLoggedIn) {
+      fetchSamplePreview();
+    }
+  }, [style, scene, photoType, isLoggedIn]);
 
   useEffect(() => {
     if (!isStudioToolId(toolFromUrl)) {
@@ -259,12 +296,17 @@ export default function ImageStudio() {
   }
 
   const aspectPadding = `${(dimension.height / dimension.width) * 100}%`;
+  
+  // Show instant sample preview if no generated image is available
   const displayImage =
     latest?.image_url && !loading
       ? latest
       : previewResult?.image_url && !(loading && runMode === "preview")
         ? previewResult
         : null;
+  
+  const showSamplePreview = !displayImage && !loading && samplePreviewUrl && isLoggedIn;
+  
   const photoTypeLabel =
     PHOTO_TYPES.find((item) => item.id === photoType)?.label || photoType;
 
@@ -432,13 +474,21 @@ export default function ImageStudio() {
                       alt={displayImage.prompt}
                       className="photo-preview-result"
                     />
+                  ) : showSamplePreview ? (
+                    <img
+                      src={samplePreviewUrl}
+                      alt={`${style} ${scene} sample`}
+                      className="photo-preview-result photo-sample-preview"
+                    />
                   ) : (
                     <div className="photo-preview-placeholder">
                       <Sparkles size={28} />
                       <p>
-                        {composedPrompt.trim()
-                          ? "Click Preview to generate from your prompt and settings"
-                          : "Add a prompt, choose settings, then Preview"}
+                        {!isLoggedIn
+                          ? "Sign in to see instant previews and generate images"
+                          : composedPrompt.trim()
+                            ? "Sample preview shows your selected style and scene"
+                            : "Choose a style and scene to see a sample preview"}
                       </p>
                     </div>
                   )}
@@ -464,7 +514,9 @@ export default function ImageStudio() {
                 <strong>Tool:</strong> {tool.label}
                 {runMode === "preview" || previewResult
                   ? " · Preview uses prompt only (no reference)"
-                  : ""}
+                  : showSamplePreview
+                    ? " · Sample preview (not generated)"
+                    : ""}
               </p>
               <p>
                 <strong>Applied prompt:</strong> {composedPrompt.trim() || "—"}
@@ -472,6 +524,11 @@ export default function ImageStudio() {
               {displayImage?.generation_time_seconds != null && !loading && (
                 <small>
                   Generated in {displayImage.generation_time_seconds} seconds
+                </small>
+              )}
+              {showSamplePreview && (
+                <small style={{ opacity: 0.7 }}>
+                  Instant sample · Click Preview or Generate for AI creation
                 </small>
               )}
             </div>

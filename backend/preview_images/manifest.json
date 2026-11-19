@@ -1,0 +1,227 @@
+{
+  "version": "1.0",
+  "description": "Sample preview images for AI Creative Studio",
+  "license_info": "All images are from Unsplash and are freely usable under the Unsplash License (https://unsplash.com/license)",
+  "images": [
+    {
+      "filename": "realistic.jpg",
+      "key": "realistic",
+      "source": "Unsplash",
+      "source_url": "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=800&q=80",
+      "license": "Unsplash License",
+      "photographer": "Joseph Gonzalez",
+      "hash": "1ad4b520ff1ceb6c",
+      "size_bytes": 93932
+    },
+    {
+      "filename": "cinematic.jpg",
+      "key": "cinematic",
+      "source": "Unsplash",
+      "source_url": "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=800&q=80",
+      "license": "Unsplash License",
+      "photographer": "Ayo Ogunseinde",
+      "hash": "3a2f393555dd2ed4",
+      "size_bytes": 159962
+    },
+    {
+      "filename": "natural.jpg",
+      "key": "natural",
+      "source": "Unsplash",
+      "source_url": "https://images.unsplash.com/photo-1531746020798-e6953c6e8e04?w=800&q=80",
+      "license": "Unsplash License",
+      "photographer": "Ivana Cajina",
+      "hash": "e81c37d5a51e2302",
+      "size_bytes": 105861
+    },
+    {
+      "filename": "studio.jpg",
+      "key": "studio",
+      "source": "Unsplash",
+      "source_url": "https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=800&q=80",
+      "license": "Unsplash License",
+      "photographer": "Amir Geshani",
+      "hash": "631716355665ccb8",
+      "size_bytes": 160722
+    },
+    {
+      "filename": "vintage.jpg",
+      "key": "vintage",
+      "source": "Unsplash",
+      "source_url": "https://images.unsplash.com/photo-1496080174650-637e3f22fa03?w=800&q=80",
+      "license": "Unsplash License",
+      "photographer": "Drew Hays",
+      "hash": "5daf6f6599de7982",
+      "size_bytes": 86625
+    },
+    {
+      "filename": "wedding.jpg",
+      "key": "wedding",
+      "source": "Unsplash",
+      "source_url": "https://images.unsplash.com/photo-1519741497674-611481863552?w=800&q=80",
+      "license": "Unsplash License",
+      "photographer": "Samantha Gades",
+      "hash": "18a38182002a3d41",
+      "size_bytes": 47714
+    },
+    {
+      "filename": "fashion.jpg",
+      "key": "fashion",
+      "source": "Unsplash",
+      "source_url": "https://images.unsplash.com/photo-1509631179647-0177331693ae?w=800&q=80",
+      "license": "Unsplash License",
+      "photographer": "Hannah Morgan",
+      "hash": "1f4fd56093d480cb",
+      "size_bytes": 129190
+    },
+    {
+      "filename": "headshot.jpg",
+      "key": "headshot",
+      "source": "Unsplash",
+      "source_url": "https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=800&q=80",
+      "license": "Unsplash License",
+      "photographer": "Christopher Campbell",
+      "hash": "1c0c9f7d74388109",
+      "size_bytes": 42398
+    },
+    {
+      "filename": "beach.jpg",
+      "key": "beach",
+      "source": "Unsplash",
+      "source_url": "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=800&q=80",
+      "license": "Unsplash License",
+      "photographer": "Sean Oulashin",
+      "hash": "951623035f514c61",
+      "size_bytes": 65440
+    },
+    {
+      "filename": "mountain.jpg",
+      "key": "mountain",
+      "source": "Unsplash",
+      "source_url": "https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=800&q=80",
+      "license": "Unsplash License",
+      "photographer": "Rohit Tandon",
+      "hash": "4c49fae17b797e45",
+      "size_bytes": 67620
+    },
+    {
+      "filename": "waterfall.jpg",
+      "key": "waterfall",
+      "source": "Unsplash",
+      "source_url": "https://images.unsplash.com/photo-1432405972618-c60b0225b8f9?w=800&q=80",
+      "license": "Unsplash License",
+      "photographer": "Rosan Harmens",
+      "hash": "8951fafdd9e3a963",
+      "size_bytes": 154965
+    },
+    {
+      "filename": "city.jpg",
+      "key": "city",
+      "source": "Unsplash",
+      "source_url": "https://images.unsplash.com/photo-1449824913935-59a10b8d2000?w=800&q=80",
+      "license": "Unsplash License",
+      "photographer": "Pedro Lastra",
+      "hash": "e446e317d807bd5b",
+      "size_bytes": 118780
+    },
+    {
+      "filename": "temple.jpg",
+      "key": "temple",
+      "source": "Unsplash",
+      "source_url": "https://images.unsplash.com/photo-1548013146-72479768bada?w=800&q=80",
+      "license": "Unsplash License",
+      "photographer": "Sonika Agarwal",
+      "hash": "59f06fa46fe72231",
+      "size_bytes": 105746
+    },
+    {
+      "filename": "garden.jpg",
+      "key": "garden",
+      "source": "Unsplash",
+      "source_url": "https://images.unsplash.com/photo-1585320806297-9794b3e4eeae?w=800&q=80",
+      "license": "Unsplash License",
+      "photographer": "Marek Piwnicki",
+      "hash": "49e43ce34c1e4eaa",
+      "size_bytes": 132754
+    },
+    {
+      "filename": "wedding_scene.jpg",
+      "key": "wedding_scene",
+      "source": "Unsplash",
+      "source_url": "https://images.unsplash.com/photo-1511285560929-80b456fea0bc?w=800&q=80",
+      "license": "Unsplash License",
+      "photographer": "Samantha Gades",
+      "hash": "17d5adc8393f80c4",
+      "size_bytes": 86087
+    },
+    {
+      "filename": "festival.jpg",
+      "key": "festival",
+      "source": "Unsplash",
+      "source_url": "https://images.unsplash.com/photo-1533174072545-7a4b6ad7a6c3?w=800&q=80",
+      "license": "Unsplash License",
+      "photographer": "Pablo Heimplatz",
+      "hash": "0752b097daa61a5b",
+      "size_bytes": 109532
+    },
+    {
+      "filename": "indoor.jpg",
+      "key": "indoor",
+      "source": "Unsplash",
+      "source_url": "https://images.unsplash.com/photo-1513584684374-8bab748fbf90?w=800&q=80",
+      "license": "Unsplash License",
+      "photographer": "Samantha Gades",
+      "hash": "8aa5b4f2bc9dce48",
+      "size_bytes": 92212
+    },
+    {
+      "filename": "passport.jpg",
+      "key": "passport",
+      "source": "Unsplash",
+      "source_url": "https://images.unsplash.com/photo-1557862921-37829c790f19?w=800&q=80",
+      "license": "Unsplash License",
+      "photographer": "Jurica Koleti\u0107",
+      "hash": "72b19654adc9cb15",
+      "size_bytes": 51040
+    },
+    {
+      "filename": "id_card.jpg",
+      "key": "id_card",
+      "source": "Unsplash",
+      "source_url": "https://images.unsplash.com/photo-1552374196-c4e7ffc6e126?w=800&q=80",
+      "license": "Unsplash License",
+      "photographer": "Clem Onojeghuo",
+      "hash": "245048e69fc949d4",
+      "size_bytes": 144452
+    },
+    {
+      "filename": "album.jpg",
+      "key": "album",
+      "source": "Unsplash",
+      "source_url": "https://images.unsplash.com/photo-1529626455594-4ff0802cfb7e?w=800&q=80",
+      "license": "Unsplash License",
+      "photographer": "Allef Vinicius",
+      "hash": "ff53ff137bbc36e5",
+      "size_bytes": 133945
+    },
+    {
+      "filename": "social.jpg",
+      "key": "social",
+      "source": "Unsplash",
+      "source_url": "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=800&q=80",
+      "license": "Unsplash License",
+      "photographer": "Monika Kozub",
+      "hash": "254500afb814b98f",
+      "size_bytes": 66576
+    },
+    {
+      "filename": "poster.jpg",
+      "key": "poster",
+      "source": "Unsplash",
+      "source_url": "https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?w=800&q=80",
+      "license": "Unsplash License",
+      "photographer": "Aiony Haust",
+      "hash": "70eb568bf45ad642",
+      "size_bytes": 89104
+    }
+  ]
+}

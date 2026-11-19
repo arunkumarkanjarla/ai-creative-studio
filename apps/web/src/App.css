@@ -1858,6 +1858,7 @@
     overflow: hidden;
     background: var(--bg-input);
     border: 1px solid var(--border);
+    container-type: inline-size;
   }
 
   .photo-preview-stage.is-generating {
@@ -1867,8 +1868,17 @@
   .photo-preview-frame {
     position: relative;
     width: 100%;
-    max-width: 520px;
+    max-width: min(520px, 90vw);
+    max-height: 600px;
     margin: 0 auto;
+  }
+  
+  /* Compact aspect-aware sizing */
+  @container (max-width: 600px) {
+    .photo-preview-frame {
+      max-width: 100%;
+      max-height: 400px;
+    }
   }
 
   .photo-preview-inner {
@@ -1895,6 +1905,10 @@
     height: 100%;
     object-fit: cover;
     border-radius: 8px;
+  }
+  
+  .photo-sample-preview {
+    object-fit: contain;
   }
 
   .photo-preview-placeholder {

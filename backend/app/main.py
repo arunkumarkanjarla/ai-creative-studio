@@ -9,6 +9,7 @@ from app.api.v1.auth import router as auth_router
 from app.api.v1.users import router as users_router
 from app.api.v1.images import router as images_router
 from app.api.v1.ai_access import router as ai_access_router
+from app.api.v1.preview import router as preview_router
 
 
 # Do NOT load AI models here.
@@ -37,6 +38,7 @@ app.include_router(auth_router, prefix="/api/v1")
 app.include_router(users_router, prefix="/api/v1")
 app.include_router(images_router, prefix="/api/v1")
 app.include_router(ai_access_router, prefix="/api/v1")
+app.include_router(preview_router, prefix="/api/v1")
 
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
@@ -57,6 +59,15 @@ app.mount(
     "/reference",
     StaticFiles(directory=str(REFERENCE_DIR)),
     name="reference",
+)
+
+# Preview samples: http://localhost:8000/preview/<file>.jpg
+PREVIEW_DIR = BACKEND_DIR / "preview_images"
+PREVIEW_DIR.mkdir(parents=True, exist_ok=True)
+app.mount(
+    "/preview",
+    StaticFiles(directory=str(PREVIEW_DIR)),
+    name="preview",
 )
 
 
