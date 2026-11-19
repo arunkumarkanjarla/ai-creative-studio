@@ -141,7 +141,7 @@ export default function ImageStudio() {
           setSamplePreviewUrl(null);
         }
       } catch (err) {
-        console.error("Failed to fetch sample preview:", err);
+        console.warn("Failed to fetch sample preview:", err);
         setSamplePreviewUrl(null);
       }
     }

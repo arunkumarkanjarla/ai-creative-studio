@@ -31,6 +31,7 @@ export default function VoiceInput({
   const [permissionState, setPermissionState] = useState<PermissionState>("prompt");
   const [error, setError] = useState<string | null>(null);
   const [useFallback, setUseFallback] = useState(false);
+  const [hasMicrophone, setHasMicrophone] = useState(true);
   
   const recognitionRef = useRef<any>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
@@ -90,8 +91,6 @@ export default function VoiceInput({
     };
 
     recognition.onerror = (event: any) => {
-      console.error("Speech recognition error:", event.error);
-      
       const errorMessages: Record<string, string> = {
         "not-allowed": "Microphone access denied.",
         "service-not-allowed": "Speech recognition service not available.",
@@ -101,7 +100,15 @@ export default function VoiceInput({
         "aborted": "Recognition aborted.",
       };
 
-      setError(errorMessages[event.error] || `Error: ${event.error}`);
+      const message = errorMessages[event.error] || `Error: ${event.error}`;
+      
+      if (event.error === "no-speech" || event.error === "aborted") {
+        console.warn("Speech recognition:", message);
+      } else {
+        console.warn("Speech recognition error:", event.error, message);
+      }
+
+      setError(message);
       setIsListening(false);
       
       if (event.error === "not-allowed" || event.error === "service-not-allowed") {
@@ -123,6 +130,20 @@ export default function VoiceInput({
 
     recognitionRef.current = recognition;
     checkMicrophonePermission();
+    checkForMicrophone();
+
+    const handleDeviceChange = () => {
+      checkForMicrophone();
+      if (error && error.includes("No microphone found")) {
+        checkForMicrophone().then((hasMic) => {
+          if (hasMic) {
+            setError(null);
+          }
+        });
+      }
+    };
+
+    navigator.mediaDevices?.addEventListener("devicechange", handleDeviceChange);
 
     return () => {
       if (recognitionRef.current) {
@@ -134,8 +155,9 @@ export default function VoiceInput({
         clearTimeout(silenceTimeoutRef.current);
       }
       stopMediaStream();
+      navigator.mediaDevices?.removeEventListener("devicechange", handleDeviceChange);
     };
-  }, [language]);
+  }, [language, error]);
 
   const checkMicrophonePermission = async () => {
     if (!navigator.permissions) {
@@ -156,27 +178,51 @@ export default function VoiceInput({
     }
   };
 
+  const checkForMicrophone = async () => {
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const hasAudioInput = devices.some((device) => device.kind === "audioinput");
+      setHasMicrophone(hasAudioInput);
+      return hasAudioInput;
+    } catch (err) {
+      console.warn("Could not enumerate devices:", err);
+      return true;
+    }
+  };
+
   const requestMicrophoneAccess = async (): Promise<boolean> => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       mediaStreamRef.current = stream;
       setPermissionState("granted");
       setError(null);
+      setHasMicrophone(true);
       return true;
     } catch (err: any) {
-      console.error("Microphone access error:", err);
+      const errorMessages: Record<string, string> = {
+        "NotFoundError": "No microphone found. Connect a mic or headset and try again.",
+        "DevicesNotFoundError": "No microphone found. Connect a mic or headset and try again.",
+        "NotAllowedError": "Microphone access denied.",
+        "PermissionDeniedError": "Microphone access denied.",
+        "NotReadableError": "Microphone is in use by another app.",
+        "TrackStartError": "Microphone is in use by another app.",
+        "OverconstrainedError": "Microphone configuration not supported.",
+        "SecurityError": "Microphone access requires HTTPS or localhost.",
+      };
+
+      const message = errorMessages[err.name] || "Could not access microphone.";
       
       if (err.name === "NotAllowedError" || err.name === "PermissionDeniedError") {
         setPermissionState("denied");
-        setError("Microphone access denied.");
-      } else if (err.name === "NotFoundError") {
-        setError("No microphone found.");
-      } else if (err.name === "NotReadableError") {
-        setError("Microphone is in use by another app.");
+        console.warn("Microphone permission denied by user");
+      } else if (err.name === "NotFoundError" || err.name === "DevicesNotFoundError") {
+        setHasMicrophone(false);
+        console.warn("No microphone device found");
       } else {
-        setError("Could not access microphone.");
+        console.warn("Microphone access error:", err.name, message);
       }
       
+      setError(message);
       return false;
     }
   };
@@ -195,8 +241,8 @@ export default function VoiceInput({
       recognitionRef.current.lang = language;
       recognitionRef.current.start();
       return true;
-    } catch (err) {
-      console.error("Failed to start recognition:", err);
+    } catch (err: any) {
+      console.warn("Failed to start recognition:", err);
       setError("Failed to start speech recognition.");
       return false;
     }
@@ -232,8 +278,8 @@ export default function VoiceInput({
       }, 5000);
 
       return true;
-    } catch (err) {
-      console.error("Failed to start recording:", err);
+    } catch (err: any) {
+      console.warn("Failed to start recording:", err);
       setError("Failed to start recording.");
       return false;
     }
@@ -258,8 +304,8 @@ export default function VoiceInput({
       if (data.text) {
         onTranscript(data.text);
       }
-    } catch (err) {
-      console.error("Transcription error:", err);
+    } catch (err: any) {
+      console.warn("Transcription failed:", err);
       setError("Transcription failed. Using Web Speech API fallback.");
       setUseFallback(false);
     } finally {
@@ -310,14 +356,22 @@ export default function VoiceInput({
     );
   }
 
+  const isDisabled = !hasMicrophone && !isListening;
+  const buttonTitle = !hasMicrophone
+    ? "No microphone found. Connect a mic or headset."
+    : isListening
+    ? "Stop listening"
+    : "Start voice input";
+
   return (
     <div className="voice-input-wrapper">
       <button
         type="button"
         className={`voice-input-button ${isListening ? "is-listening" : ""} ${className}`}
         onClick={toggleListening}
-        title={isListening ? "Stop listening" : "Start voice input"}
-        aria-label={isListening ? "Stop listening" : "Start voice input"}
+        title={buttonTitle}
+        aria-label={buttonTitle}
+        disabled={isDisabled}
       >
         {isListening ? (
           <>
@@ -337,15 +391,19 @@ export default function VoiceInput({
         <div className="voice-input-error" role="alert">
           <AlertCircle size={14} />
           <span>{error}</span>
-          {permissionState === "denied" && (
+          {(permissionState === "denied" || error?.includes("microphone found") || error) && (
             <div className="voice-input-help">
-              <p>To enable microphone:</p>
-              <ol>
-                <li>Click the lock/site info icon in address bar</li>
-                <li>Go to Site permissions → Microphone</li>
-                <li>Select "Allow"</li>
-                <li>Reload the page</li>
-              </ol>
+              {permissionState === "denied" && (
+                <>
+                  <p>To enable microphone:</p>
+                  <ol>
+                    <li>Click the lock/site info icon in address bar</li>
+                    <li>Go to Site permissions → Microphone</li>
+                    <li>Select "Allow"</li>
+                    <li>Reload the page</li>
+                  </ol>
+                </>
+              )}
               <button onClick={retryPermission} className="voice-input-retry">
                 Retry
               </button>
