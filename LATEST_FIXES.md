@@ -1,8 +1,203 @@
 # Latest Fixes - Theme Picker & Live Preview
 
-## Owner Feedback - Round 2
+## Owner Feedback - Round 2 & 3
 
-After testing PR #3 locally, the owner reported two issues that have now been fixed.
+After testing PR #3 locally, the owner reported issues that have been fixed across multiple iterations.
+
+---
+
+## Round 3: Collapsible Preview & ChatGPT-style Generation ✅ FIXED
+
+### Issue 1: Live Preview Always Visible
+
+**Problem:** Live Preview panel always rendered (even empty placeholder), taking up space.
+
+**Solution:** Panel hidden by default, only appears when user clicks Preview or Generate.
+
+#### Implementation
+
+**State Management:**
+```typescript
+const [previewPanelOpen, setPreviewPanelOpen] = useState(false);
+
+function handlePreview() {
+  setShowMockPreview(true);
+  setPreviewPanelOpen(true);  // Open panel
+}
+
+function closePreview() {
+  setPreviewPanelOpen(false);
+  setShowMockPreview(false);
+}
+```
+
+**Conditional Rendering:**
+```tsx
+{previewPanelOpen && (
+  <div className="photo-preview-panel photo-preview-panel-open">
+    <div className="photo-preview-header">
+      <h3>Live Preview</h3>
+      <button onClick={closePreview}>
+        <X size={18} />
+      </button>
+    </div>
+    {/* preview content */}
+  </div>
+)}
+```
+
+**CSS Animation:**
+```css
+.photo-preview-panel {
+  display: none;
+}
+
+.photo-preview-panel-open {
+  display: block;
+  animation: slideIn 0.3s ease-out;
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+```
+
+**Behavior:**
+- Hidden by default (not in DOM)
+- Opens when Preview clicked (smooth slide-in)
+- Opens when Generate clicked (shows progress)
+- Close button (X) in header
+- Closes when prompt cleared
+- Closes when Clear button clicked
+- Layout flows naturally when hidden
+
+### Issue 2: Basic Generation Progress
+
+**Problem:** Generic progress bar didn't feel polished like ChatGPT.
+
+**Solution:** Implemented ChatGPT-style progressive reveal with blur and status messages.
+
+#### Implementation
+
+**Progressive Blur Effect:**
+```tsx
+{loading && (
+  <div className="photo-generating-frame">
+    <div 
+      className="photo-generating-blur"
+      style={{ 
+        opacity: Math.max(0.2, 1 - (progress / 100)),
+        filter: `blur(${Math.max(2, 20 - (progress / 5))}px)`
+      }}
+    >
+      <div className="photo-generating-shimmer" />
+    </div>
+    
+    {displayImage?.image_url && (
+      <img
+        src={displayImage.image_url}
+        className="photo-generating-reveal"
+        style={{ opacity: progress >= 100 ? 1 : 0 }}
+      />
+    )}
+    
+    <div className="photo-generating-status">
+      <span>{getProgressStatus(progress)}</span>
+      <span>{progress}%</span>
+    </div>
+  </div>
+)}
+```
+
+**Status Messages:**
+```typescript
+function getProgressStatus(percent: number): string {
+  if (percent < 15) return "Preparing canvas...";
+  if (percent < 30) return "Creating composition...";
+  if (percent < 50) return "Adding details...";
+  if (percent < 70) return "Refining image...";
+  if (percent < 90) return "Finishing touches...";
+  return "Almost ready...";
+}
+```
+
+**CSS Shimmer Animation:**
+```css
+.photo-generating-blur {
+  background: linear-gradient(135deg, 
+    var(--accent-soft) 0%, 
+    var(--bg-elevated) 25%, 
+    var(--accent-soft) 50%, 
+    var(--bg-elevated) 75%, 
+    var(--accent-soft) 100%);
+  background-size: 400% 400%;
+  animation: shimmer 3s ease infinite;
+}
+
+@keyframes shimmer {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+
+.photo-generating-shimmer {
+  background: linear-gradient(90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.08) 50%,
+    transparent 100%);
+  animation: shimmerMove 2s linear infinite;
+}
+```
+
+**Final Fade-In:**
+```css
+.photo-result-fadein {
+  animation: fadeIn 0.8s ease-in;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    filter: blur(10px);
+  }
+  to {
+    opacity: 1;
+    filter: blur(0);
+  }
+}
+```
+
+**Features:**
+- Frame shown immediately at correct aspect ratio
+- Blurred gradient placeholder (20px blur at start)
+- Shimmer animation overlay
+- Blur reduces progressively (tied to %)
+- Nice status messages update as it progresses
+- Status badge at bottom with message + percentage
+- Final image fades in sharp (0.8s transition)
+- Theme-aware (uses CSS variables)
+- Responsive at all widths
+
+**Visual Flow:**
+1. Generate clicked → Panel opens
+2. Frame appears with heavy blur (20px)
+3. Shimmer animates across
+4. Blur reduces: 20px → 15px → 10px → 5px → 2px
+5. Progress: 0% → 15% → 30% → 50% → 70% → 90% → 100%
+6. Status: "Preparing..." → "Creating..." → "Adding details..." → "Refining..." → "Finishing..." → "Almost ready..."
+7. At 100%: Image fades in sharp (blur 10px → 0px over 0.8s)
+
+---
+
+## Round 2: Theme Picker & Preview Behavior
+
+### Issue 1: Theme Picker Mobile Positioning ✅ FIXED
 
 ---
 
