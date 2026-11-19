@@ -29,6 +29,8 @@ interface SidebarProps {
   collapsed?: boolean;
   onToggleCollapsed?: () => void;
   guestMode?: boolean;
+  mobileOpen?: boolean;
+  onMobileClose?: () => void;
 }
 
 interface MenuItem {
@@ -64,6 +66,8 @@ export default function Sidebar({
   collapsed = false,
   onToggleCollapsed,
   guestMode = false,
+  mobileOpen = false,
+  onMobileClose,
 }: SidebarProps) {
   const { hasAccess, isAdmin, user } = useAuth();
   const location = useLocation();
@@ -210,6 +214,7 @@ export default function Sidebar({
               className={`sidebar-sublink${isActive ? " active" : ""}${
                 locked ? " is-locked" : ""
               }`}
+              onClick={handleLinkClick}
             >
               <span className="sidebar-sublink-label">{tool.label}</span>
               {tool.badge && <em className="sidebar-badge">{tool.badge}</em>}
@@ -253,6 +258,7 @@ export default function Sidebar({
                     }
                     onClick={() => {
                       if (isPhoto) setPhotoOpen(true);
+                      handleLinkClick();
                     }}
                   >
                     <Icon size={19} />
@@ -294,8 +300,25 @@ export default function Sidebar({
     photoTools.length > 0 &&
     !filtered.some((item) => item.id === "photo");
 
+  // Close mobile menu when navigating
+  const handleLinkClick = () => {
+    if (onMobileClose) {
+      onMobileClose();
+    }
+  };
+
   return (
-    <aside className={`sidebar${collapsed ? " is-collapsed" : ""}`}>
+    <>
+      {/* Mobile overlay */}
+      {mobileOpen && (
+        <div 
+          className="mobile-menu-overlay is-open" 
+          onClick={onMobileClose}
+          aria-hidden="true"
+        />
+      )}
+      
+      <aside className={`sidebar${collapsed ? " is-collapsed" : ""}${mobileOpen ? " is-open" : ""}`}>
       <div className="sidebar-top">
         <div className="sidebar-brand">
           <Sparkles size={22} />
@@ -348,6 +371,7 @@ export default function Sidebar({
           </>
         )}
       </nav>
-    </aside>
+      </aside>
+    </>
   );
 }
