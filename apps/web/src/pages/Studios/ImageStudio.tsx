@@ -6,9 +6,9 @@ import {
   Lock,
   Sparkles,
   Upload,
+  X,
 } from "lucide-react";
 
-import GenerationProgress from "../../components/GenerationProgress";
 import { useAuth } from "../../context/AuthContext";
 import { apiRequest, mediaUrl } from "../../services/api";
 import {
@@ -98,11 +98,11 @@ export default function ImageStudio() {
 
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState(0);
-  const [progressMessage, setProgressMessage] = useState("");
   const [error, setError] = useState("");
   const [latest, setLatest] = useState<GeneratedItem | null>(null);
   const [samplePreviewUrl, setSamplePreviewUrl] = useState<string | null>(null);
   const [showMockPreview, setShowMockPreview] = useState(false);
+  const [previewPanelOpen, setPreviewPanelOpen] = useState(false);
 
   const image1Preview = useObjectUrl(image1);
   const image2Preview = useObjectUrl(image2);
@@ -148,10 +148,11 @@ export default function ImageStudio() {
     fetchSamplePreview();
   }, [style, scene, photoType]);
   
-  // Clear mock preview when prompt is cleared
+  // Clear mock preview and close panel when prompt is cleared
   useEffect(() => {
     if (!prompt.trim()) {
       setShowMockPreview(false);
+      setPreviewPanelOpen(false);
     }
   }, [prompt]);
 
@@ -165,7 +166,6 @@ export default function ImageStudio() {
     setError("");
     setLatest(null);
     setProgress(0);
-    setProgressMessage("");
     setShowMockPreview(false);
   }, [toolId]);
 
@@ -183,7 +183,6 @@ export default function ImageStudio() {
         `/images/jobs/${jobId}`
       );
       setProgress(status.progress);
-      setProgressMessage(status.message || "Generating...");
 
       if (status.status === "completed" && status.result) {
         return status.result;
@@ -209,6 +208,12 @@ export default function ImageStudio() {
     
     setError("");
     setShowMockPreview(true);
+    setPreviewPanelOpen(true);
+  }
+  
+  function closePreview() {
+    setPreviewPanelOpen(false);
+    setShowMockPreview(false);
   }
 
   async function runGeneration() {
@@ -235,10 +240,10 @@ export default function ImageStudio() {
 
     setLoading(true);
     setProgress(1);
-    setProgressMessage("Starting...");
     setError("");
     setLatest(null);
     setShowMockPreview(false);
+    setPreviewPanelOpen(true); // Show panel during generation
 
     try {
       const form = new FormData();
@@ -264,13 +269,11 @@ export default function ImageStudio() {
       });
 
       setProgress(started.progress || 1);
-      setProgressMessage(started.message || "Queued...");
 
       const result = await pollJob(started.job_id);
-      setLatest(result);
-      setProgressMessage("Done");
-      clearForm();
       setProgress(100);
+      setLatest(result);
+      clearForm();
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Image generation failed."
@@ -301,11 +304,21 @@ export default function ImageStudio() {
 
   const aspectPadding = `${(dimension.height / dimension.width) * 100}%`;
   
-  // Only show generated image, not preview result
-  const displayImage = latest?.image_url && !loading ? latest : null;
+  // Show generated image or generating state
+  const displayImage = latest?.image_url ? latest : null;
   
   // Show mock preview if user clicked Preview and has a prompt
   const showMock = showMockPreview && samplePreviewUrl && prompt.trim().length >= 3 && !loading;
+  
+  // Get nice status message based on progress
+  function getProgressStatus(percent: number): string {
+    if (percent < 15) return "Preparing canvas...";
+    if (percent < 30) return "Creating composition...";
+    if (percent < 50) return "Adding details...";
+    if (percent < 70) return "Refining image...";
+    if (percent < 90) return "Finishing touches...";
+    return "Almost ready...";
+  }
   
   const photoTypeLabel =
     PHOTO_TYPES.find((item) => item.id === photoType)?.label || photoType;
@@ -446,6 +459,7 @@ export default function ImageStudio() {
                 onClick={() => {
                   clearForm();
                   setShowMockPreview(false);
+                  setPreviewPanelOpen(false);
                 }}
               >
                 Clear
@@ -453,27 +467,62 @@ export default function ImageStudio() {
             </div>
           </form>
 
-          <div className="photo-preview-panel">
-            <div className="photo-preview-header">
-              <h3>Live Preview</h3>
-              <span>
-                {dimension.label} · {photoTypeLabel} · {style} · {scene}
-              </span>
-            </div>
+          {previewPanelOpen && (
+            <div className="photo-preview-panel photo-preview-panel-open">
+              <div className="photo-preview-header">
+                <h3>Live Preview</h3>
+                <button
+                  type="button"
+                  className="photo-preview-close"
+                  onClick={closePreview}
+                  aria-label="Close preview"
+                  title="Close preview"
+                >
+                  <X size={18} />
+                </button>
+              </div>
 
-            <div
-              className={`photo-preview-stage${loading ? " is-generating" : ""}`}
-            >
+              <div
+                className={`photo-preview-stage${loading ? " is-generating" : ""}`}
+              >
               <div
                 className="photo-preview-frame"
                 style={{ paddingBottom: aspectPadding }}
               >
                 <div className="photo-preview-inner">
-                  {displayImage?.image_url ? (
+                  {loading ? (
+                    <div className="photo-generating-frame">
+                      <div 
+                        className="photo-generating-blur"
+                        style={{ 
+                          opacity: Math.max(0.2, 1 - (progress / 100)),
+                          filter: `blur(${Math.max(2, 20 - (progress / 5))}px)`
+                        }}
+                      >
+                        <div className="photo-generating-shimmer" />
+                      </div>
+                      {displayImage?.image_url && (
+                        <img
+                          src={mediaUrl(displayImage.image_url) || ""}
+                          alt={displayImage.prompt}
+                          className="photo-preview-result photo-generating-reveal"
+                          style={{ opacity: progress >= 100 ? 1 : 0 }}
+                        />
+                      )}
+                      <div className="photo-generating-status">
+                        <span className="photo-generating-status-text">
+                          {getProgressStatus(progress)}
+                        </span>
+                        <span className="photo-generating-status-percent">
+                          {progress}%
+                        </span>
+                      </div>
+                    </div>
+                  ) : displayImage?.image_url ? (
                     <img
                       src={mediaUrl(displayImage.image_url) || ""}
                       alt={displayImage.prompt}
-                      className="photo-preview-result"
+                      className="photo-preview-result photo-result-fadein"
                     />
                   ) : showMock ? (
                     <div className="photo-preview-mock">
@@ -490,24 +539,7 @@ export default function ImageStudio() {
                         <p className="photo-preview-mock-prompt">{prompt.substring(0, 100)}{prompt.length > 100 ? "..." : ""}</p>
                       </div>
                     </div>
-                  ) : (
-                    <div className="photo-preview-placeholder">
-                      <Sparkles size={28} />
-                      <p>
-                        {!isLoggedIn
-                          ? "Sign in to preview and generate images"
-                          : "Enter a prompt and click Preview to see a mock, or Generate for AI creation"}
-                      </p>
-                    </div>
-                  )}
-                  {loading && (
-                    <div className="photo-preview-overlay">
-                      <GenerationProgress
-                        progress={progress}
-                        message={progressMessage || "Generating..."}
-                      />
-                    </div>
-                  )}
+                  ) : null}
                 </div>
               </div>
             </div>
@@ -525,8 +557,9 @@ export default function ImageStudio() {
                   Generated in {displayImage.generation_time_seconds} seconds
                 </small>
               )}
+              </div>
             </div>
-          </div>
+          )}
         </section>
 
         <aside className="photo-settings">
