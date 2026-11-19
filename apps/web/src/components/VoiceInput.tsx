@@ -118,6 +118,7 @@ export default function VoiceInput({
       if (silenceTimeoutRef.current) {
         clearTimeout(silenceTimeoutRef.current);
       }
+      stopMediaStream();
     };
 
     recognitionRef.current = recognition;
@@ -274,6 +275,7 @@ export default function VoiceInput({
         recognitionRef.current.stop();
       }
       setIsListening(false);
+      stopMediaStream();
       return;
     }
 
