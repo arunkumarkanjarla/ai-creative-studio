@@ -56,8 +56,6 @@ interface PreviewSampleResponse {
   error?: string;
 }
 
-type RunMode = "preview" | "generate";
-
 function useObjectUrl(file: File | null) {
   const [url, setUrl] = useState<string | null>(null);
   useEffect(() => {
@@ -99,13 +97,12 @@ export default function ImageStudio() {
   const [scene, setScene] = useState<(typeof SCENES)[number]>("Beach");
 
   const [loading, setLoading] = useState(false);
-  const [runMode, setRunMode] = useState<RunMode | null>(null);
   const [progress, setProgress] = useState(0);
   const [progressMessage, setProgressMessage] = useState("");
   const [error, setError] = useState("");
   const [latest, setLatest] = useState<GeneratedItem | null>(null);
-  const [previewResult, setPreviewResult] = useState<GeneratedItem | null>(null);
   const [samplePreviewUrl, setSamplePreviewUrl] = useState<string | null>(null);
+  const [showMockPreview, setShowMockPreview] = useState(false);
 
   const image1Preview = useObjectUrl(image1);
   const image2Preview = useObjectUrl(image2);
@@ -125,7 +122,7 @@ export default function ImageStudio() {
     [tool.id, prompt, style, scene, photoType]
   );
 
-  // Fetch instant sample preview whenever style, scene, or photoType changes
+  // Fetch sample preview URL for mock preview
   useEffect(() => {
     async function fetchSamplePreview() {
       try {
@@ -148,10 +145,15 @@ export default function ImageStudio() {
       }
     }
     
-    if (isLoggedIn) {
-      fetchSamplePreview();
+    fetchSamplePreview();
+  }, [style, scene, photoType]);
+  
+  // Clear mock preview when prompt is cleared
+  useEffect(() => {
+    if (!prompt.trim()) {
+      setShowMockPreview(false);
     }
-  }, [style, scene, photoType, isLoggedIn]);
+  }, [prompt]);
 
   useEffect(() => {
     if (!isStudioToolId(toolFromUrl)) {
@@ -162,10 +164,9 @@ export default function ImageStudio() {
   useEffect(() => {
     setError("");
     setLatest(null);
-    setPreviewResult(null);
     setProgress(0);
     setProgressMessage("");
-    setRunMode(null);
+    setShowMockPreview(false);
   }, [toolId]);
 
   function clearForm() {
@@ -194,69 +195,67 @@ export default function ImageStudio() {
     }
   }
 
-  async function runGeneration(mode: RunMode) {
+  function handlePreview() {
+    // Preview now shows instant mock, no AI generation
     if (!isLoggedIn) {
-      setError("Sign in to preview and generate images.");
+      setError("Sign in to preview images.");
+      return;
+    }
+    
+    if (prompt.trim().length < 3) {
+      setError("Enter a prompt to preview.");
+      return;
+    }
+    
+    setError("");
+    setShowMockPreview(true);
+  }
+
+  async function runGeneration() {
+    if (!isLoggedIn) {
+      setError("Sign in to generate images.");
       return;
     }
 
     const finalPrompt = composedPrompt;
-    if (prompt.trim().length < 3 && mode === "preview") {
-      setError("Enter a prompt to preview the generated image.");
-      return;
-    }
     if (finalPrompt.trim().length < 3) {
       setError("Please enter a prompt describing what you want.");
       return;
     }
 
-    // Preview is always prompt-only (no reference upload).
-    // Generate uses uploads when the selected tool needs them.
-    if (mode === "generate") {
-      if (tool.needsImage1 && !image1) {
-        setError("Upload Image 1 to continue.");
-        return;
-      }
-      if (tool.needsImage2 && !image2) {
-        setError("Upload Image 2 to continue.");
-        return;
-      }
+    // Generate uses uploads when the selected tool needs them
+    if (tool.needsImage1 && !image1) {
+      setError("Upload Image 1 to continue.");
+      return;
+    }
+    if (tool.needsImage2 && !image2) {
+      setError("Upload Image 2 to continue.");
+      return;
     }
 
     setLoading(true);
-    setRunMode(mode);
     setProgress(1);
-    setProgressMessage(
-      mode === "preview" ? "Creating preview from prompt..." : "Starting..."
-    );
+    setProgressMessage("Starting...");
     setError("");
-    if (mode === "preview") {
-      setPreviewResult(null);
-    } else {
-      setLatest(null);
-    }
+    setLatest(null);
+    setShowMockPreview(false);
 
     try {
       const form = new FormData();
       form.append("prompt", finalPrompt);
-      form.append(
-        "tool",
-        mode === "preview" ? "text_to_image" : tool.id
-      );
+      form.append("tool", tool.id);
       form.append("width", String(dimension.width));
       form.append("height", String(dimension.height));
       form.append("photo_type", photoType);
       form.append("photo_style", style);
       form.append("scene", scene);
 
-      if (mode === "generate") {
-        const reference = image1 || image2;
-        if (reference) {
-          form.append("reference", reference);
-        }
-        if (image2 && tool.needsImage2) {
-          form.append("reference_secondary", image2);
-        }
+      const reference = image1 || image2;
+      if (reference) {
+        form.append("reference", reference);
+      }
+      if (image2 && tool.needsImage2) {
+        form.append("reference_secondary", image2);
       }
 
       const started = await apiRequest<JobStartResponse>("/images/generate", {
@@ -265,20 +264,12 @@ export default function ImageStudio() {
       });
 
       setProgress(started.progress || 1);
-      setProgressMessage(
-        started.message ||
-          (mode === "preview" ? "Preview queued..." : "Queued...")
-      );
+      setProgressMessage(started.message || "Queued...");
 
       const result = await pollJob(started.job_id);
-      if (mode === "preview") {
-        setPreviewResult(result);
-        setProgressMessage("Preview ready");
-      } else {
-        setLatest(result);
-        setProgressMessage("Done");
-        clearForm();
-      }
+      setLatest(result);
+      setProgressMessage("Done");
+      clearForm();
       setProgress(100);
     } catch (err) {
       setError(
@@ -286,29 +277,40 @@ export default function ImageStudio() {
       );
     } finally {
       setLoading(false);
-      setRunMode(null);
     }
   }
 
   async function handleGenerate(event: FormEvent) {
     event.preventDefault();
-    await runGeneration("generate");
+    await runGeneration();
+  }
+  
+  // Get CSS filter for photo style
+  function getStyleFilter(styleName: string): string {
+    const filters: Record<string, string> = {
+      "Cinematic": "contrast(1.1) saturate(1.2) brightness(0.95)",
+      "Vintage": "sepia(0.3) contrast(0.9) brightness(1.05)",
+      "Natural": "saturate(0.9) brightness(1.05)",
+      "Studio": "contrast(1.15) brightness(1.05)",
+      "Wedding": "brightness(1.1) saturate(1.1) contrast(0.95)",
+      "Fashion": "contrast(1.2) saturate(1.3)",
+      "Headshot": "contrast(1.1) brightness(1.05)",
+    };
+    return filters[styleName] || "none";
   }
 
   const aspectPadding = `${(dimension.height / dimension.width) * 100}%`;
   
-  // Show instant sample preview if no generated image is available
-  const displayImage =
-    latest?.image_url && !loading
-      ? latest
-      : previewResult?.image_url && !(loading && runMode === "preview")
-        ? previewResult
-        : null;
+  // Only show generated image, not preview result
+  const displayImage = latest?.image_url && !loading ? latest : null;
   
-  const showSamplePreview = !displayImage && !loading && samplePreviewUrl && isLoggedIn;
+  // Show mock preview if user clicked Preview and has a prompt
+  const showMock = showMockPreview && samplePreviewUrl && prompt.trim().length >= 3 && !loading;
   
   const photoTypeLabel =
     PHOTO_TYPES.find((item) => item.id === photoType)?.label || photoType;
+  
+  const canPreview = isLoggedIn && prompt.trim().length >= 3;
 
   return (
     <div className="photo-studio">
@@ -412,18 +414,18 @@ export default function ImageStudio() {
               <button
                 className="secondary-button"
                 type="button"
-                disabled={loading || !isLoggedIn}
-                onClick={() => runGeneration("preview")}
+                disabled={!canPreview || loading}
+                onClick={handlePreview}
                 title={
-                  isLoggedIn
-                    ? "Generate a preview from prompt + settings (no reference)"
-                    : "Sign in to preview"
+                  !isLoggedIn
+                    ? "Sign in to preview"
+                    : !canPreview
+                      ? "Enter a prompt to preview"
+                      : "Show instant preview mock with selected format"
                 }
               >
                 <Eye size={16} />
-                {loading && runMode === "preview"
-                  ? "Previewing..."
-                  : "Preview"}
+                Preview
               </button>
               <button
                 className="primary-button"
@@ -431,21 +433,20 @@ export default function ImageStudio() {
                 disabled={loading || !isLoggedIn}
                 title={
                   isLoggedIn
-                    ? "Generate final image with settings"
+                    ? "Generate final image with AI"
                     : "Sign in to generate images"
                 }
               >
-                {loading && runMode === "generate"
-                  ? "Generating..."
-                  : isLoggedIn
-                    ? "Generate Image"
-                    : "Sign in to Generate"}
+                {loading ? "Generating..." : isLoggedIn ? "Generate Image" : "Sign in to Generate"}
               </button>
               <button
                 className="secondary-button"
                 type="button"
                 disabled={loading}
-                onClick={clearForm}
+                onClick={() => {
+                  clearForm();
+                  setShowMockPreview(false);
+                }}
               >
                 Clear
               </button>
@@ -474,21 +475,28 @@ export default function ImageStudio() {
                       alt={displayImage.prompt}
                       className="photo-preview-result"
                     />
-                  ) : showSamplePreview ? (
-                    <img
-                      src={samplePreviewUrl}
-                      alt={`${style} ${scene} sample`}
-                      className="photo-preview-result photo-sample-preview"
-                    />
+                  ) : showMock ? (
+                    <div className="photo-preview-mock">
+                      <img
+                        src={samplePreviewUrl}
+                        alt={`${style} ${scene} preview`}
+                        className="photo-preview-result photo-sample-preview"
+                        style={{ filter: getStyleFilter(style) }}
+                      />
+                      <div className="photo-preview-mock-caption">
+                        <p><strong>Preview Mock</strong></p>
+                        <p>{dimension.label} ({dimension.width}×{dimension.height}) · {photoTypeLabel}</p>
+                        <p>{style} · {scene}</p>
+                        <p className="photo-preview-mock-prompt">{prompt.substring(0, 100)}{prompt.length > 100 ? "..." : ""}</p>
+                      </div>
+                    </div>
                   ) : (
                     <div className="photo-preview-placeholder">
                       <Sparkles size={28} />
                       <p>
                         {!isLoggedIn
-                          ? "Sign in to see instant previews and generate images"
-                          : composedPrompt.trim()
-                            ? "Sample preview shows your selected style and scene"
-                            : "Choose a style and scene to see a sample preview"}
+                          ? "Sign in to preview and generate images"
+                          : "Enter a prompt and click Preview to see a mock, or Generate for AI creation"}
                       </p>
                     </div>
                   )}
@@ -496,12 +504,7 @@ export default function ImageStudio() {
                     <div className="photo-preview-overlay">
                       <GenerationProgress
                         progress={progress}
-                        message={
-                          progressMessage ||
-                          (runMode === "preview"
-                            ? "Creating preview..."
-                            : "Generating...")
-                        }
+                        message={progressMessage || "Generating..."}
                       />
                     </div>
                   )}
@@ -512,11 +515,7 @@ export default function ImageStudio() {
             <div className="photo-preview-meta">
               <p>
                 <strong>Tool:</strong> {tool.label}
-                {runMode === "preview" || previewResult
-                  ? " · Preview uses prompt only (no reference)"
-                  : showSamplePreview
-                    ? " · Sample preview (not generated)"
-                    : ""}
+                {showMock ? " · Preview mock (instant, not AI-generated)" : ""}
               </p>
               <p>
                 <strong>Applied prompt:</strong> {composedPrompt.trim() || "—"}
@@ -524,11 +523,6 @@ export default function ImageStudio() {
               {displayImage?.generation_time_seconds != null && !loading && (
                 <small>
                   Generated in {displayImage.generation_time_seconds} seconds
-                </small>
-              )}
-              {showSamplePreview && (
-                <small style={{ opacity: 0.7 }}>
-                  Instant sample · Click Preview or Generate for AI creation
                 </small>
               )}
             </div>
