@@ -7,7 +7,8 @@ from sqlalchemy.orm import Session
 import csv
 import io
 
-from app.api.deps import get_current_user, get_db
+from app.api.v1.dependencies import get_current_user, require_admin
+from app.db.database import get_db
 from app.models.user import User
 from app.models.analytics import VisitorSession, LoginSession, UsageEvent
 from app.core.analytics import track_page_visit, get_client_ip
@@ -15,11 +16,6 @@ from app.core.analytics import track_page_visit, get_client_ip
 router = APIRouter(prefix="/analytics", tags=["Analytics"])
 
 
-def require_admin(current_user: User = Depends(get_current_user)):
-    """Require admin role."""
-    if not current_user.is_admin:
-        raise HTTPException(status_code=403, detail="Admin access required")
-    return current_user
 
 
 @router.post("/track")
