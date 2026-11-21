@@ -49,6 +49,19 @@ export async function getCurrentUser(): Promise<User> {
   return apiRequest<User>("/auth/me");
 }
 
-export function logout(): void {
+export async function logout(): Promise<void> {
+  // Call backend logout endpoint if user is authenticated
+  const token = localStorage.getItem("access_token");
+  
+  if (token) {
+    try {
+      await apiRequest("/auth/logout", {
+        method: "POST",
+      });
+    } catch (error) {
+      console.error("Logout API call failed:", error);
+    }
+  }
+  
   localStorage.removeItem("access_token");
 }

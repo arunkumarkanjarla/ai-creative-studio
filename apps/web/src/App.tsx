@@ -6,11 +6,13 @@ import {
   Routes,
   Outlet,
   Link,
+  useLocation,
 } from "react-router-dom";
-import { Sparkles } from "lucide-react";
+import { Menu, Sparkles } from "lucide-react";
 
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import { ThemeProvider } from "./context/ThemeContext";
+import { trackPageView } from "./services/analytics";
 
 import ProtectedRoute from "./components/ProtectedRoute";
 import AdminRoute from "./components/AdminRoute";
@@ -35,6 +37,7 @@ import Register from "./pages/Register";
 import AIAccessSettings from "./pages/Admin/AIAccessSettings";
 import ImageHistory from "./pages/Admin/ImageHistory";
 import ReferenceList from "./pages/Admin/ReferenceList";
+import AnalyticsReports from "./pages/AnalyticsReports";
 
 import "./App.css";
 
@@ -44,6 +47,7 @@ function MainLayout() {
   const [collapsed, setCollapsed] = useState(() => {
     return localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === "1";
   });
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   useEffect(() => {
     localStorage.setItem(SIDEBAR_COLLAPSED_KEY, collapsed ? "1" : "0");
@@ -54,10 +58,12 @@ function MainLayout() {
       <Sidebar
         collapsed={collapsed}
         onToggleCollapsed={() => setCollapsed((value) => !value)}
+        mobileOpen={mobileMenuOpen}
+        onMobileClose={() => setMobileMenuOpen(false)}
       />
 
       <div className="main-area">
-        <Navbar />
+        <Navbar onMobileMenuToggle={() => setMobileMenuOpen((open) => !open)} />
 
         <main className="main-content">
           <Outlet />
@@ -71,6 +77,7 @@ function GuestStudioLayout() {
   const [collapsed, setCollapsed] = useState(() => {
     return localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === "1";
   });
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   useEffect(() => {
     localStorage.setItem(SIDEBAR_COLLAPSED_KEY, collapsed ? "1" : "0");
@@ -82,11 +89,21 @@ function GuestStudioLayout() {
         guestMode
         collapsed={collapsed}
         onToggleCollapsed={() => setCollapsed((value) => !value)}
+        mobileOpen={mobileMenuOpen}
+        onMobileClose={() => setMobileMenuOpen(false)}
       />
 
       <div className="main-area">
         <header className="app-navbar">
           <div className="navbar-actions">
+            <button 
+              type="button"
+              className="mobile-menu-toggle" 
+              onClick={() => setMobileMenuOpen((open) => !open)}
+              aria-label="Toggle menu"
+            >
+              <Menu size={20} />
+            </button>
             <Link to="/" className="navbar-title-link">
               <Sparkles size={20} />
               <span className="navbar-title">AI Creative Studio</span>
@@ -122,11 +139,25 @@ function StudioLayout() {
   return <GuestStudioLayout />;
 }
 
+/**
+ * Track route changes for analytics
+ */
+function RouteTracker() {
+  const location = useLocation();
+  
+  useEffect(() => {
+    trackPageView(location.pathname);
+  }, [location]);
+  
+  return null;
+}
+
 function App() {
   return (
     <BrowserRouter>
       <ThemeProvider>
         <AuthProvider>
+          <RouteTracker />
           <Routes>
             <Route path="/" element={<Home />} />
             <Route path="/login" element={<Login />} />
@@ -149,6 +180,7 @@ function App() {
                   <Route path="/admin/ai-access" element={<AIAccessSettings />} />
                   <Route path="/admin/images" element={<ImageHistory />} />
                   <Route path="/admin/references" element={<ReferenceList />} />
+                  <Route path="/admin/analytics" element={<AnalyticsReports />} />
                 </Route>
               </Route>
             </Route>

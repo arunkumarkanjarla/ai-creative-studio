@@ -43,3 +43,12 @@ def create_access_token(user_id: int) -> str:
         settings.JWT_SECRET_KEY,
         algorithm=settings.JWT_ALGORITHM
     )
+
+
+def decode_token(token: str) -> dict:
+    """Decode and verify JWT token. Returns payload or raises exception."""
+    return jwt.decode(
+        token,
+        settings.JWT_SECRET_KEY,
+        algorithms=[settings.JWT_ALGORITHM]
+    )

@@ -1,3 +1,4 @@
+import { getVisitorId } from "../utils/visitor";
 
 const API_BASE_URL = "http://localhost:8000/api/v1";
 export const MEDIA_BASE_URL = "http://localhost:8000";
@@ -39,6 +40,7 @@ export async function apiRequest<T>(
   options: RequestInit = {}
 ): Promise<T> {
   const token = localStorage.getItem("access_token");
+  const visitorId = getVisitorId();
 
   const headers = new Headers(options.headers);
 
@@ -49,6 +51,9 @@ export async function apiRequest<T>(
   if (token) {
     headers.set("Authorization", `Bearer ${token}`);
   }
+  
+  // Add visitor ID to all requests
+  headers.set("X-Visitor-Id", visitorId);
 
   const response = await fetch(`${API_BASE_URL}${endpoint}`, {
     ...options,
