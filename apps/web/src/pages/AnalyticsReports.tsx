@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { BarChart, Bar, LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
-import { format, subDays, startOfDay, endOfDay, startOfWeek, startOfMonth, startOfYear, parseISO } from "date-fns";
+import { format, subDays, startOfDay, endOfDay, parseISO } from "date-fns";
 import { Calendar, TrendingUp, TrendingDown, Users, LogIn, Image, Download, Search, AlertTriangle, Activity } from "lucide-react";
 import { apiRequest } from "../services/api";
 
