@@ -249,25 +249,24 @@ def get_hourly_breakdown(
     from sqlalchemy import text
     
     # Calculate activity by weekday (0=Sunday, 1=Monday, ..., 6=Saturday) and hour (0-23)
-    # Apply timezone offset: created_at + INTERVAL 'N minutes'
-    # Build interval string separately to avoid SQL injection while allowing parameter
-    interval_str = f"{tz_offset_minutes} minutes"
-    
-    query = text("""
+    # Apply timezone offset by building the SQL dynamically with the validated integer parameter
+    # Safe because tz_offset_minutes is an integer query parameter validated by FastAPI
+    query_sql = f"""
         SELECT 
-            EXTRACT(DOW FROM created_at + INTERVAL :offset_interval)::INTEGER as weekday,
-            EXTRACT(HOUR FROM created_at + INTERVAL :offset_interval)::INTEGER as hour,
+            EXTRACT(DOW FROM created_at + INTERVAL '{tz_offset_minutes} minutes')::INTEGER as weekday,
+            EXTRACT(HOUR FROM created_at + INTERVAL '{tz_offset_minutes} minutes')::INTEGER as hour,
             COUNT(*) as count
         FROM visitor_sessions
         WHERE created_at BETWEEN :start_date AND :end_date
         GROUP BY weekday, hour
         ORDER BY weekday, hour
-    """)
+    """
+    
+    query = text(query_sql)
     
     result = db.execute(query, {
         "start_date": start_date,
         "end_date": end_date,
-        "offset_interval": interval_str
     })
     
     heatmap_data = [
