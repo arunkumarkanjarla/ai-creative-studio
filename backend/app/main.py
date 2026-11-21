@@ -1,9 +1,11 @@
 ﻿
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.base import BaseHTTPMiddleware
+import time
 
 from app.api.v1.auth import router as auth_router
 from app.api.v1.users import router as users_router
@@ -12,6 +14,9 @@ from app.api.v1.ai_access import router as ai_access_router
 from app.api.v1.preview import router as preview_router
 from app.api.v1.transcribe import router as transcribe_router
 from app.api.v1.analytics import router as analytics_router
+from app.db.database import SessionLocal
+from app.core.analytics import track_page_visit, get_client_ip
+from app.core.security import decode_token
 
 
 # Do NOT load AI models here.
@@ -23,6 +28,76 @@ app = FastAPI(
 )
 
 
+class AnalyticsMiddleware(BaseHTTPMiddleware):
+    """Track visitor sessions for every API request."""
+    
+    async def dispatch(self, request: Request, call_next):
+        # Skip tracking for certain paths
+        path = request.url.path
+        skip_patterns = [
+            "/preview/",
+            "/generated/",
+            "/reference/",
+            "/docs",
+            "/openapi.json",
+            "/api/v1/health",
+            "/api/v1/analytics/",
+        ]
+        
+        should_skip = any(path.startswith(pattern) for pattern in skip_patterns)
+        
+        if not should_skip and path.startswith("/api/"):
+            # Extract tracking data
+            visitor_id = request.headers.get("X-Visitor-Id")
+            user_agent = request.headers.get("User-Agent")
+            forwarded_for = request.headers.get("X-Forwarded-For")
+            ip = get_client_ip(request, forwarded_for)
+            
+            # Extract user_id from bearer token if present
+            user_id = None
+            auth_header = request.headers.get("Authorization", "")
+            if auth_header.startswith("Bearer "):
+                token = auth_header.split(" ", 1)[1]
+                try:
+                    payload = decode_token(token)
+                    user_id = payload.get("user_id")
+                except Exception:
+                    pass
+            
+            # Derive studio from route
+            studio = None
+            if "/images/" in path:
+                studio = "image"
+            elif "/audio/" in path:
+                studio = "audio"
+            elif "/video/" in path:
+                studio = "video"
+            
+            # Track in background with own DB session
+            if visitor_id:
+                try:
+                    db = SessionLocal()
+                    try:
+                        track_page_visit(
+                            db=db,
+                            visitor_id=visitor_id,
+                            user_id=user_id,
+                            ip=ip,
+                            user_agent=user_agent,
+                            path=path,
+                            studio=studio,
+                        )
+                    finally:
+                        db.close()
+                except Exception as e:
+                    print(f"[AnalyticsMiddleware] Error: {e}")
+        
+        response = await call_next(request)
+        return response
+
+
+app.add_middleware(AnalyticsMiddleware)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -31,7 +106,7 @@ app.add_middleware(
     ],
     allow_credentials=True,
     allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type"],
+    allow_headers=["Authorization", "Content-Type", "X-Visitor-Id"],
     expose_headers=["*"],
 )
 

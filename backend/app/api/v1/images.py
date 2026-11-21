@@ -3,6 +3,7 @@ from math import ceil
 from pathlib import Path
 from typing import Literal, Optional
 import threading
+import time as time_module
 
 from fastapi import (
     APIRouter,
@@ -46,6 +47,7 @@ from app.services.ai.prompt_store import (
     list_prompts,
     load_meta,
 )
+from app.core.analytics import track_usage_event
 
 
 router = APIRouter(prefix="/images", tags=["Text-to-Image"])
@@ -180,6 +182,7 @@ def _run_image_job(
 ) -> None:
     """Background worker so the API can return progress while generating."""
     db = SessionLocal()
+    start_time = time_module.time()
     try:
         start_job(image_id)
         set_progress(image_id, 2, "Preparing...")
@@ -240,6 +243,21 @@ def _run_image_job(
                 "created_at": image_row.created_at,
             },
         )
+        
+        # Track successful generation
+        duration_ms = int((time_module.time() - start_time) * 1000)
+        if attempt:
+            track_usage_event(
+                db=db,
+                visitor_id=attempt.visitor_id,
+                user_id=image_row.user_id,
+                ip=attempt.ip_address,
+                studio="image",
+                action="generate",
+                tool="text_to_image",
+                success=True,
+                duration_ms=duration_ms,
+            )
     except Exception as error:
         try:
             image_row = db.get(GeneratedImage, image_id)
@@ -255,6 +273,21 @@ def _run_image_job(
                 attempt.completed_at = datetime.now(timezone.utc)
                 db.add(attempt)
             db.commit()
+            
+            # Track failed generation
+            duration_ms = int((time_module.time() - start_time) * 1000)
+            if attempt:
+                track_usage_event(
+                    db=db,
+                    visitor_id=attempt.visitor_id,
+                    user_id=image_row.user_id if image_row else None,
+                    ip=attempt.ip_address,
+                    studio="image",
+                    action="generate",
+                    tool="text_to_image",
+                    success=False,
+                    duration_ms=duration_ms,
+                )
         except Exception:
             db.rollback()
         fail_job(image_id, str(error))

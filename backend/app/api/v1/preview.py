@@ -1,8 +1,14 @@
 import json
 from pathlib import Path
 from typing import Literal
+import time
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Request, Depends
+from sqlalchemy.orm import Session
+
+from app.db.database import get_db
+from app.core.analytics import track_usage_event, get_client_ip
+from app.api.v1.dependencies import get_optional_user
 
 router = APIRouter(prefix="/preview", tags=["Preview"])
 
@@ -23,9 +29,12 @@ def get_manifest():
 
 @router.get("/sample")
 def get_preview_sample(
+    request: Request,
     style: str = Query(default="realistic"),
     scene: str = Query(default="beach"),
     photo_type: str = Query(default="album"),
+    db: Session = Depends(get_db),
+    current_user = Depends(get_optional_user),
 ):
     """
     Return the URL of a sample preview image matching the selected style, scene, and photo type.
@@ -36,8 +45,27 @@ def get_preview_sample(
     3. Match by photo type (e.g. "passport", "social")
     4. Fallback to "realistic.jpg"
     """
+    start_time = time.time()
+    
     manifest = get_manifest()
     if not manifest:
+        # Track failed preview
+        visitor_id = request.headers.get("X-Visitor-Id")
+        forwarded_for = request.headers.get("X-Forwarded-For")
+        ip = get_client_ip(request, forwarded_for)
+        duration_ms = int((time.time() - start_time) * 1000)
+        
+        track_usage_event(
+            db=db,
+            visitor_id=visitor_id,
+            user_id=current_user.id if current_user else None,
+            ip=ip,
+            studio="image",
+            action="preview",
+            tool="sample_preview",
+            success=False,
+            duration_ms=duration_ms,
+        )
         return {"preview_url": None, "error": "Manifest not found"}
     
     # Normalize inputs
@@ -57,25 +85,48 @@ def get_preview_sample(
     # Find first matching image
     images_by_key = {img["key"]: img for img in manifest.get("images", [])}
     
+    result = None
     for candidate in candidates:
         if candidate in images_by_key:
             img = images_by_key[candidate]
-            return {
+            result = {
                 "preview_url": f"/preview/{img['filename']}",
                 "key": img["key"],
                 "photographer": img.get("photographer"),
                 "source": img.get("source"),
             }
+            break
     
     # Fallback to realistic
-    if "realistic" in images_by_key:
+    if not result and "realistic" in images_by_key:
         img = images_by_key["realistic"]
-        return {
+        result = {
             "preview_url": f"/preview/{img['filename']}",
             "key": "realistic",
             "photographer": img.get("photographer"),
             "source": img.get("source"),
         }
+    
+    # Track usage event
+    visitor_id = request.headers.get("X-Visitor-Id")
+    forwarded_for = request.headers.get("X-Forwarded-For")
+    ip = get_client_ip(request, forwarded_for)
+    duration_ms = int((time.time() - start_time) * 1000)
+    
+    track_usage_event(
+        db=db,
+        visitor_id=visitor_id,
+        user_id=current_user.id if current_user else None,
+        ip=ip,
+        studio="image",
+        action="preview",
+        tool="sample_preview",
+        success=result is not None,
+        duration_ms=duration_ms,
+    )
+    
+    if result:
+        return result
     
     return {"preview_url": None, "error": "No preview images available"}
 
