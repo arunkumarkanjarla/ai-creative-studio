@@ -250,10 +250,13 @@ def get_hourly_breakdown(
     
     # Calculate activity by weekday (0=Sunday, 1=Monday, ..., 6=Saturday) and hour (0-23)
     # Apply timezone offset: created_at + INTERVAL 'N minutes'
+    # Build interval string separately to avoid SQL injection while allowing parameter
+    interval_str = f"{tz_offset_minutes} minutes"
+    
     query = text("""
         SELECT 
-            EXTRACT(DOW FROM created_at + INTERVAL :offset_min || ' minutes')::INTEGER as weekday,
-            EXTRACT(HOUR FROM created_at + INTERVAL :offset_min || ' minutes')::INTEGER as hour,
+            EXTRACT(DOW FROM created_at + INTERVAL :offset_interval)::INTEGER as weekday,
+            EXTRACT(HOUR FROM created_at + INTERVAL :offset_interval)::INTEGER as hour,
             COUNT(*) as count
         FROM visitor_sessions
         WHERE created_at BETWEEN :start_date AND :end_date
@@ -264,7 +267,7 @@ def get_hourly_breakdown(
     result = db.execute(query, {
         "start_date": start_date,
         "end_date": end_date,
-        "offset_min": tz_offset_minutes
+        "offset_interval": interval_str
     })
     
     heatmap_data = [
