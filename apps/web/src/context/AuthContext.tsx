@@ -64,8 +64,8 @@ import {
       }
     }
   
-    function handleLogout() {
-      logoutService();
+    async function handleLogout() {
+      await logoutService();
       setUser(null);
       window.location.href = "/login";
     }

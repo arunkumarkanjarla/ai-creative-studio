@@ -26,23 +26,26 @@ def require_admin(current_user: User = Depends(get_current_user)):
 def track_frontend_view(
     request: Request,
     path: str,
+    action: Optional[str] = None,
     studio: Optional[str] = None,
     db: Session = Depends(get_db),
 ):
     """Track a frontend page view (works for anonymous users)."""
-    visitor_id = request.headers.get("X-Visitor-ID", "unknown")
+    visitor_id = request.headers.get("X-Visitor-Id", "unknown")
     user_agent = request.headers.get("User-Agent")
     ip = get_client_ip(request, request.headers.get("X-Forwarded-For"))
     
-    # Try to get user ID from auth header if present
+    # Try to get user ID from auth token if present
     user_id = None
-    try:
-        from app.api.deps import get_current_user_optional
-        user = get_current_user_optional(db, request.headers.get("Authorization"))
-        if user:
-            user_id = user.id
-    except Exception:
-        pass
+    auth_header = request.headers.get("Authorization", "")
+    if auth_header.startswith("Bearer "):
+        token = auth_header.split(" ", 1)[1]
+        try:
+            from app.core.security import decode_token
+            payload = decode_token(token)
+            user_id = payload.get("user_id")
+        except Exception:
+            pass
     
     track_page_visit(db, visitor_id, user_id, ip, user_agent, path, studio)
     return {"status": "tracked"}

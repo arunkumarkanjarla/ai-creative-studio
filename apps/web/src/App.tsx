@@ -6,11 +6,13 @@ import {
   Routes,
   Outlet,
   Link,
+  useLocation,
 } from "react-router-dom";
 import { Menu, Sparkles } from "lucide-react";
 
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import { ThemeProvider } from "./context/ThemeContext";
+import { trackPageView } from "./services/analytics";
 
 import ProtectedRoute from "./components/ProtectedRoute";
 import AdminRoute from "./components/AdminRoute";
@@ -137,11 +139,25 @@ function StudioLayout() {
   return <GuestStudioLayout />;
 }
 
+/**
+ * Track route changes for analytics
+ */
+function RouteTracker() {
+  const location = useLocation();
+  
+  useEffect(() => {
+    trackPageView(location.pathname);
+  }, [location]);
+  
+  return null;
+}
+
 function App() {
   return (
     <BrowserRouter>
       <ThemeProvider>
         <AuthProvider>
+          <RouteTracker />
           <Routes>
             <Route path="/" element={<Home />} />
             <Route path="/login" element={<Login />} />
