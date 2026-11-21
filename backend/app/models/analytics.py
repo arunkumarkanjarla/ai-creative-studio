@@ -3,7 +3,7 @@ from sqlalchemy import Column, Integer, String, DateTime, Boolean, ForeignKey, I
 from sqlalchemy.dialects.postgresql import UUID
 import uuid
 
-from app.db.base_class import Base
+from app.db.database import Base
 
 
 class VisitorSession(Base):
