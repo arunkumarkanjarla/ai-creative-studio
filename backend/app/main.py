@@ -1,5 +1,6 @@
 ﻿
 from pathlib import Path
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -14,9 +15,29 @@ from app.api.v1.ai_access import router as ai_access_router
 from app.api.v1.preview import router as preview_router
 from app.api.v1.transcribe import router as transcribe_router
 from app.api.v1.analytics import router as analytics_router
-from app.db.database import SessionLocal
+from app.db.database import SessionLocal, engine, Base
 from app.core.analytics import track_page_visit, get_client_ip
 from app.core.security import decode_token
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Startup and shutdown logic."""
+    # Import all models to ensure they're registered with Base
+    from app.models.user import User
+    from app.models.generated_image import GeneratedImage
+    from app.models.ai_access import AIGenerationAttempt
+    from app.models.analytics import VisitorSession, LoginSession, UsageEvent
+    
+    # Create all tables if they don't exist
+    print("Creating database tables...")
+    Base.metadata.create_all(bind=engine, checkfirst=True)
+    print("Database tables ready.")
+    
+    yield
+    
+    # Cleanup on shutdown (if needed)
+    print("Shutting down...")
 
 
 # Do NOT load AI models here.
@@ -25,6 +46,7 @@ app = FastAPI(
     title="AI Creative Studio API",
     description="Open-source AI image, audio and video generation platform",
     version="1.0.0",
+    lifespan=lifespan,
 )
 
 

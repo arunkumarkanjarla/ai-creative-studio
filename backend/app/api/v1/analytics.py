@@ -240,6 +240,56 @@ def get_timeseries_data(
     }
 
 
+@router.get("/hourly-breakdown")
+def get_hourly_breakdown(
+    start_date: datetime = Query(...),
+    end_date: datetime = Query(...),
+    tz_offset_minutes: int = Query(0, description="Timezone offset in minutes from UTC (e.g., -300 for EST)"),
+    db: Session = Depends(get_db),
+    _admin: User = Depends(require_admin),
+):
+    """Get weekday x hour activity heatmap data. Timezone offset applied in SQL."""
+    from sqlalchemy import text
+    
+    # Calculate activity by weekday (0=Sunday, 1=Monday, ..., 6=Saturday) and hour (0-23)
+    # Apply timezone offset: created_at + INTERVAL 'N minutes'
+    query = text("""
+        SELECT 
+            EXTRACT(DOW FROM created_at + INTERVAL :offset_min || ' minutes')::INTEGER as weekday,
+            EXTRACT(HOUR FROM created_at + INTERVAL :offset_min || ' minutes')::INTEGER as hour,
+            COUNT(*) as count
+        FROM visitor_sessions
+        WHERE created_at BETWEEN :start_date AND :end_date
+        GROUP BY weekday, hour
+        ORDER BY weekday, hour
+    """)
+    
+    result = db.execute(query, {
+        "start_date": start_date,
+        "end_date": end_date,
+        "offset_min": tz_offset_minutes
+    })
+    
+    heatmap_data = [
+        {"weekday": int(row[0]), "hour": int(row[1]), "count": int(row[2])}
+        for row in result
+    ]
+    
+    # Calculate peak hours (top 3 hours with most activity)
+    hourly_totals = {}
+    for item in heatmap_data:
+        hour = item["hour"]
+        hourly_totals[hour] = hourly_totals.get(hour, 0) + item["count"]
+    
+    peak_hours = sorted(hourly_totals.items(), key=lambda x: x[1], reverse=True)[:3]
+    
+    return {
+        "heatmap": heatmap_data,
+        "peak_hours": [{"hour": h, "count": c} for h, c in peak_hours],
+        "total_visits": sum(item["count"] for item in heatmap_data)
+    }
+
+
 @router.get("/login-history")
 def get_login_history(
     skip: int = Query(0, ge=0),

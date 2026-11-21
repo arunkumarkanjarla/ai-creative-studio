@@ -42,6 +42,7 @@ export default function AnalyticsReports() {
   const [topIPs, setTopIPs] = useState<any[]>([]);
   const [topUsers, setTopUsers] = useState<any[]>([]);
   const [timeseries, setTimeseries] = useState<any>(null);
+  const [hourlyData, setHourlyData] = useState<any>(null);
   const [loginHistory, setLoginHistory] = useState<any[]>([]);
   const [loginTotal, setLoginTotal] = useState(0);
   const [loginPage, setLoginPage] = useState(0);
@@ -108,10 +109,19 @@ export default function AnalyticsReports() {
         end_date: endDate,
         granularity,
       });
+      
+      // Get timezone offset in minutes
+      const tzOffsetMinutes = -new Date().getTimezoneOffset();
+      const hourlyParams = new URLSearchParams({
+        start_date: startDate,
+        end_date: endDate,
+        tz_offset_minutes: String(tzOffsetMinutes),
+      });
 
-      const [summaryData, timeseriesData] = await Promise.all([
+      const [summaryData, timeseriesData, hourlyBreakdown] = await Promise.all([
         apiRequest<any>(`/analytics/summary?${params}`),
         apiRequest<any>(`/analytics/timeseries?${params}`),
+        apiRequest<any>(`/analytics/hourly-breakdown?${hourlyParams}`),
       ]);
 
       setSummary(summaryData.summary);
@@ -121,9 +131,10 @@ export default function AnalyticsReports() {
       setTopIPs(summaryData.top_ips);
       setTopUsers(summaryData.top_users || []);
       setTimeseries(timeseriesData);
+      setHourlyData(hourlyBreakdown);
       
       // Generate insights
-      generateInsights(summaryData);
+      generateInsights(summaryData, hourlyBreakdown);
     } catch (err) {
       console.error("Failed to fetch analytics:", err);
     } finally {
@@ -152,29 +163,38 @@ export default function AnalyticsReports() {
     }
   };
   
-  const generateInsights = (data: any) => {
+  const generateInsights = (data: any, hourlyData: any) => {
     const newInsights: string[] = [];
     const summary = data.summary;
     
-    // Peak hours insight (would need hourly data, placeholder for now)
-    if (summary.total_visits > 0) {
-      newInsights.push("Most activity occurs during business hours (9 AM - 5 PM)");
+    // Peak hours insight from REAL data
+    if (hourlyData && hourlyData.peak_hours && hourlyData.peak_hours.length > 0) {
+      const topHours = hourlyData.peak_hours
+        .map((h: any) => {
+          const hour = h.hour;
+          const period = hour === 0 ? "12 AM" : hour < 12 ? `${hour} AM` : hour === 12 ? "12 PM" : `${hour - 12} PM`;
+          return period;
+        })
+        .slice(0, 3)
+        .join(", ");
+      newInsights.push(`Peak activity hours: ${topHours}`);
     }
     
-    // Top studio
+    // Top studio from real data
     if (data.studio_usage && data.studio_usage.length > 0) {
       const topStudio = data.studio_usage.reduce((a: any, b: any) => a.count > b.count ? a : b);
-      newInsights.push(`Image Studio is most popular with ${topStudio.count} uses`);
+      const studioName = topStudio.studio.charAt(0).toUpperCase() + topStudio.studio.slice(1);
+      newInsights.push(`${studioName} Studio is most popular with ${topStudio.count} uses`);
     }
     
-    // Growth trend
-    if (data.changes && data.changes.unique_visitors > 0) {
-      newInsights.push(`Growing: +${data.changes.unique_visitors} new visitors vs previous period`);
-    } else if (data.changes && data.changes.unique_visitors < 0) {
-      newInsights.push(`Declining: ${data.changes.unique_visitors} fewer visitors vs previous period`);
+    // Growth trend from real data
+    if (data.changes && data.changes.unique_ips > 0) {
+      newInsights.push(`Growing: +${data.changes.unique_ips} new IPs vs previous period`);
+    } else if (data.changes && data.changes.unique_ips < 0) {
+      newInsights.push(`Declining: ${data.changes.unique_ips} fewer IPs vs previous period`);
     }
     
-    // Failed login spikes
+    // Failed login spikes from real data
     if (summary.logins_failed > 10) {
       const topIP = data.top_ips && data.top_ips.length > 0 ? data.top_ips[0] : null;
       if (topIP && topIP.visits > 20) {
@@ -424,6 +444,54 @@ export default function AnalyticsReports() {
                   <Bar dataKey="video" stackId="a" fill={STUDIO_COLORS.video} name="Video" />
                 </BarChart>
               </ResponsiveContainer>
+            </div>
+          )}
+          
+          {hourlyData && hourlyData.heatmap && hourlyData.heatmap.length > 0 && (
+            <div className="chart-card heatmap-card">
+              <h3>Activity Heatmap (Weekday × Hour)</h3>
+              <div className="heatmap-container">
+                <div className="heatmap-grid">
+                  <div className="heatmap-y-labels">
+                    <div></div>
+                    {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => (
+                      <div key={day} className="heatmap-label">{day}</div>
+                    ))}
+                  </div>
+                  <div className="heatmap-chart">
+                    <div className="heatmap-x-labels">
+                      {Array.from({ length: 24 }, (_, i) => (
+                        <div key={i} className="heatmap-label">{i}</div>
+                      ))}
+                    </div>
+                    <div className="heatmap-cells">
+                      {Array.from({ length: 7 }, (_, weekday) => (
+                        <div key={weekday} className="heatmap-row">
+                          {Array.from({ length: 24 }, (_, hour) => {
+                            const cell = hourlyData.heatmap.find(
+                              (d: any) => d.weekday === weekday && d.hour === hour
+                            );
+                            const count = cell ? cell.count : 0;
+                            const maxCount = Math.max(...hourlyData.heatmap.map((d: any) => d.count));
+                            const intensity = maxCount > 0 ? count / maxCount : 0;
+                            return (
+                              <div
+                                key={hour}
+                                className="heatmap-cell"
+                                style={{
+                                  backgroundColor: `rgba(var(--accent-rgb, 59, 130, 246), ${intensity})`,
+                                  opacity: count === 0 ? 0.1 : 1,
+                                }}
+                                title={`${["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][weekday]} ${hour}:00 - ${count} visits`}
+                              />
+                            );
+                          })}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
           )}
 
