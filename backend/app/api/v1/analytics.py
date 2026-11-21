@@ -127,12 +127,13 @@ def get_analytics_summary(
     ).group_by(VisitorSession.device_type).all()
     
     browser_split = db.query(
-        func.substr(VisitorSession.browser, 1, 20).label("browser"),
+        VisitorSession.browser.label("browser"),
         func.count(VisitorSession.id).label("count")
     ).filter(
         VisitorSession.created_at.between(start_date, end_date)
     ).filter(VisitorSession.browser.isnot(None))\
-    .group_by(func.substr(VisitorSession.browser, 1, 20))\
+    .group_by(VisitorSession.browser)\
+    .order_by(func.count(VisitorSession.id).desc())\
     .limit(10).all()
     
     # Top IPs
