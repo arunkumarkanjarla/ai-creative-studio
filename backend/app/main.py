@@ -82,7 +82,7 @@ class AnalyticsMiddleware(BaseHTTPMiddleware):
                 token = auth_header.split(" ", 1)[1]
                 try:
                     payload = decode_token(token)
-                    user_id = payload.get("user_id")
+                    user_id = int(payload.get("sub")) if payload.get("sub") else None
                 except Exception:
                     pass
             

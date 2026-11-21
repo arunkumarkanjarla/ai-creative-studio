@@ -39,7 +39,7 @@ def track_frontend_view(
         try:
             from app.core.security import decode_token
             payload = decode_token(token)
-            user_id = payload.get("user_id")
+            user_id = int(payload.get("sub")) if payload.get("sub") else None
         except Exception:
             pass
     
