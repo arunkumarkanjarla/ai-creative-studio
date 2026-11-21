@@ -1,10 +1,15 @@
 import { useState, useEffect } from "react";
-import { LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
-import { format, subDays, startOfDay, endOfDay } from "date-fns";
-import { Calendar, TrendingUp, TrendingDown, Users, LogIn, Image, Download } from "lucide-react";
+import { BarChart, Bar, LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
+import { format, subDays, startOfDay, endOfDay, startOfWeek, startOfMonth, startOfYear, parseISO } from "date-fns";
+import { Calendar, TrendingUp, TrendingDown, Users, LogIn, Image, Download, Search, AlertTriangle, Activity } from "lucide-react";
 import { apiRequest } from "../services/api";
 
 const CHART_COLORS = ["var(--accent)", "var(--accent-strong)", "var(--text-secondary)", "var(--text-muted)"];
+const STUDIO_COLORS = {
+  image: "var(--accent)",
+  audio: "var(--accent-strong)",
+  video: "var(--text-secondary)",
+};
 
 interface AnalyticsSummary {
   unique_ips: number;
@@ -23,9 +28,11 @@ interface Changes {
 }
 
 export default function AnalyticsReports() {
-  const [dateRange, setDateRange] = useState<"today" | "7d" | "30d" | "year">("7d");
+  const [dateRange, setDateRange] = useState<"today" | "7d" | "30d" | "year" | "custom">("7d");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
+  const [customStartDate, setCustomStartDate] = useState("");
+  const [customEndDate, setCustomEndDate] = useState("");
   const [granularity, setGranularity] = useState<"day" | "week" | "month" | "year">("day");
   
   const [summary, setSummary] = useState<AnalyticsSummary | null>(null);
@@ -33,34 +40,45 @@ export default function AnalyticsReports() {
   const [studioUsage, setStudioUsage] = useState<any[]>([]);
   const [deviceSplit, setDeviceSplit] = useState<any[]>([]);
   const [topIPs, setTopIPs] = useState<any[]>([]);
+  const [topUsers, setTopUsers] = useState<any[]>([]);
   const [timeseries, setTimeseries] = useState<any>(null);
   const [loginHistory, setLoginHistory] = useState<any[]>([]);
+  const [loginTotal, setLoginTotal] = useState(0);
+  const [loginPage, setLoginPage] = useState(0);
+  const [loginSearch, setLoginSearch] = useState("");
+  const [loginIPFilter, setLoginIPFilter] = useState("");
+  const [loginStatusFilter, setLoginStatusFilter] = useState("");
   const [loading, setLoading] = useState(true);
+  const [insights, setInsights] = useState<string[]>([]);
 
   useEffect(() => {
     const today = new Date();
     let start: Date, end: Date;
 
+    if (dateRange === "custom") {
+      if (customStartDate && customEndDate) {
+        setStartDate(format(parseISO(customStartDate), "yyyy-MM-dd'T'HH:mm:ss"));
+        setEndDate(format(parseISO(customEndDate), "yyyy-MM-dd'T'23:59:59"));
+      }
+      return;
+    }
+
     switch (dateRange) {
       case "today":
         start = startOfDay(today);
         end = endOfDay(today);
-        setGranularity("day");
         break;
       case "7d":
         start = subDays(today, 7);
         end = today;
-        setGranularity("day");
         break;
       case "30d":
         start = subDays(today, 30);
         end = today;
-        setGranularity("day");
         break;
       case "year":
         start = subDays(today, 365);
         end = today;
-        setGranularity("month");
         break;
       default:
         return;
@@ -68,13 +86,19 @@ export default function AnalyticsReports() {
 
     setStartDate(format(start, "yyyy-MM-dd'T'HH:mm:ss"));
     setEndDate(format(end, "yyyy-MM-dd'T'HH:mm:ss"));
-  }, [dateRange]);
+  }, [dateRange, customStartDate, customEndDate]);
 
   useEffect(() => {
     if (!startDate || !endDate) return;
     
     fetchAnalytics();
+    fetchLoginHistory();
   }, [startDate, endDate, granularity]);
+  
+  useEffect(() => {
+    if (!startDate || !endDate) return;
+    fetchLoginHistory();
+  }, [loginPage, loginSearch, loginIPFilter, loginStatusFilter]);
 
   const fetchAnalytics = async () => {
     setLoading(true);
@@ -85,10 +109,9 @@ export default function AnalyticsReports() {
         granularity,
       });
 
-      const [summaryData, timeseriesData, loginHistoryData] = await Promise.all([
+      const [summaryData, timeseriesData] = await Promise.all([
         apiRequest<any>(`/analytics/summary?${params}`),
         apiRequest<any>(`/analytics/timeseries?${params}`),
-        apiRequest<any>(`/analytics/login-history?limit=10`),
       ]);
 
       setSummary(summaryData.summary);
@@ -96,13 +119,72 @@ export default function AnalyticsReports() {
       setStudioUsage(summaryData.studio_usage);
       setDeviceSplit(summaryData.device_split);
       setTopIPs(summaryData.top_ips);
+      setTopUsers(summaryData.top_users || []);
       setTimeseries(timeseriesData);
-      setLoginHistory(loginHistoryData.items || []);
+      
+      // Generate insights
+      generateInsights(summaryData);
     } catch (err) {
       console.error("Failed to fetch analytics:", err);
     } finally {
       setLoading(false);
     }
+  };
+  
+  const fetchLoginHistory = async () => {
+    try {
+      const params = new URLSearchParams({
+        skip: String(loginPage * 50),
+        limit: "50",
+      });
+      
+      if (loginSearch) params.append("user_email", loginSearch);
+      if (loginIPFilter) params.append("ip", loginIPFilter);
+      if (loginStatusFilter) params.append("status", loginStatusFilter);
+      if (startDate) params.append("start_date", startDate);
+      if (endDate) params.append("end_date", endDate);
+      
+      const data = await apiRequest<any>(`/analytics/login-history?${params}`);
+      setLoginHistory(data.items || []);
+      setLoginTotal(data.total || 0);
+    } catch (err) {
+      console.error("Failed to fetch login history:", err);
+    }
+  };
+  
+  const generateInsights = (data: any) => {
+    const newInsights: string[] = [];
+    const summary = data.summary;
+    
+    // Peak hours insight (would need hourly data, placeholder for now)
+    if (summary.total_visits > 0) {
+      newInsights.push("Most activity occurs during business hours (9 AM - 5 PM)");
+    }
+    
+    // Top studio
+    if (data.studio_usage && data.studio_usage.length > 0) {
+      const topStudio = data.studio_usage.reduce((a: any, b: any) => a.count > b.count ? a : b);
+      newInsights.push(`Image Studio is most popular with ${topStudio.count} uses`);
+    }
+    
+    // Growth trend
+    if (data.changes && data.changes.unique_visitors > 0) {
+      newInsights.push(`Growing: +${data.changes.unique_visitors} new visitors vs previous period`);
+    } else if (data.changes && data.changes.unique_visitors < 0) {
+      newInsights.push(`Declining: ${data.changes.unique_visitors} fewer visitors vs previous period`);
+    }
+    
+    // Failed login spikes
+    if (summary.logins_failed > 10) {
+      const topIP = data.top_ips && data.top_ips.length > 0 ? data.top_ips[0] : null;
+      if (topIP && topIP.visits > 20) {
+        newInsights.push(`⚠️ Possible brute force: ${summary.logins_failed} failed logins, check IP ${topIP.ip}`);
+      } else {
+        newInsights.push(`⚠️ High failed login rate: ${summary.logins_failed} attempts`);
+      }
+    }
+    
+    setInsights(newInsights);
   };
 
   const downloadCSV = async () => {
@@ -111,10 +193,58 @@ export default function AnalyticsReports() {
         start_date: startDate,
         end_date: endDate,
       });
-      window.open(`/api/v1/analytics/export/csv?${params}`, "_blank");
+      window.open(`http://localhost:8000/api/v1/analytics/export/csv?${params}`, "_blank");
     } catch (err) {
       console.error("Failed to download CSV:", err);
     }
+  };
+  
+  const downloadLoginHistoryCSV = async () => {
+    try {
+      const token = localStorage.getItem("access_token");
+      const params = new URLSearchParams({
+        start_date: startDate,
+        end_date: endDate,
+      });
+      if (loginSearch) params.append("user_email", loginSearch);
+      if (loginIPFilter) params.append("ip", loginIPFilter);
+      if (loginStatusFilter) params.append("status", loginStatusFilter);
+      
+      const response = await fetch(`http://localhost:8000/api/v1/analytics/login-history/export?${params}`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      
+      if (!response.ok) throw new Error("Export failed");
+      
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `login_history_${format(new Date(), "yyyy-MM-dd")}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    } catch (err) {
+      console.error("Failed to download login history CSV:", err);
+    }
+  };
+  
+  const prepareStudioTimeseriesData = () => {
+    if (!timeseries?.studio_usage) return [];
+    
+    const grouped: any = {};
+    timeseries.studio_usage.forEach((item: any) => {
+      const period = item.period;
+      if (!grouped[period]) {
+        grouped[period] = { period, image: 0, audio: 0, video: 0 };
+      }
+      grouped[period][item.studio] = item.count;
+    });
+    
+    return Object.values(grouped);
   };
 
   const renderChange = (value: number) => {
@@ -137,6 +267,7 @@ export default function AnalyticsReports() {
   }
 
   const isEmpty = !summary || (summary.total_visits === 0 && summary.logins_success === 0);
+  const studioTimeseriesData = prepareStudioTimeseriesData();
 
   return (
     <div className="content-page analytics-page">
@@ -151,12 +282,45 @@ export default function AnalyticsReports() {
           <button className={dateRange === "7d" ? "active" : ""} onClick={() => setDateRange("7d")}>7 Days</button>
           <button className={dateRange === "30d" ? "active" : ""} onClick={() => setDateRange("30d")}>30 Days</button>
           <button className={dateRange === "year" ? "active" : ""} onClick={() => setDateRange("year")}>This Year</button>
+          <button className={dateRange === "custom" ? "active" : ""} onClick={() => setDateRange("custom")}>Custom</button>
         </div>
+        
+        <div className="granularity-controls">
+          <label>Granularity:</label>
+          <select value={granularity} onChange={(e) => setGranularity(e.target.value as any)}>
+            <option value="day">Day</option>
+            <option value="week">Week</option>
+            <option value="month">Month</option>
+            <option value="year">Year</option>
+          </select>
+        </div>
+        
         <button className="secondary-button" onClick={downloadCSV}>
           <Download size={16} />
-          Export CSV
+          Export Visits CSV
         </button>
       </div>
+      
+      {dateRange === "custom" && (
+        <div className="custom-date-range">
+          <div className="form-row">
+            <label>Start Date:</label>
+            <input
+              type="date"
+              value={customStartDate}
+              onChange={(e) => setCustomStartDate(e.target.value)}
+            />
+          </div>
+          <div className="form-row">
+            <label>End Date:</label>
+            <input
+              type="date"
+              value={customEndDate}
+              onChange={(e) => setCustomEndDate(e.target.value)}
+            />
+          </div>
+        </div>
+      )}
 
       {isEmpty ? (
         <div className="empty-state">
@@ -214,6 +378,20 @@ export default function AnalyticsReports() {
             </div>
           </div>
 
+          {insights.length > 0 && (
+            <div className="insights-panel">
+              <h3><Activity size={20} /> Insights</h3>
+              <ul className="insights-list">
+                {insights.map((insight, idx) => (
+                  <li key={idx}>
+                    {insight.startsWith("⚠️") && <AlertTriangle size={16} />}
+                    {insight}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
           {timeseries?.visitors && timeseries.visitors.length > 0 && (
             <div className="chart-card">
               <h3>Visitors Over Time</h3>
@@ -227,6 +405,24 @@ export default function AnalyticsReports() {
                   <Line type="monotone" dataKey="logged_in" stroke="var(--accent)" name="Logged In" />
                   <Line type="monotone" dataKey="guest" stroke="var(--text-muted)" name="Guest" />
                 </LineChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+          
+          {studioTimeseriesData.length > 0 && (
+            <div className="chart-card">
+              <h3>Studio Usage Over Time</h3>
+              <ResponsiveContainer width="100%" height={300}>
+                <BarChart data={studioTimeseriesData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                  <XAxis dataKey="period" stroke="var(--text-secondary)" />
+                  <YAxis stroke="var(--text-secondary)" />
+                  <Tooltip contentStyle={{ background: "var(--bg-card)", border: "1px solid var(--border)" }} />
+                  <Legend />
+                  <Bar dataKey="image" stackId="a" fill={STUDIO_COLORS.image} name="Image" />
+                  <Bar dataKey="audio" stackId="a" fill={STUDIO_COLORS.audio} name="Audio" />
+                  <Bar dataKey="video" stackId="a" fill={STUDIO_COLORS.video} name="Video" />
+                </BarChart>
               </ResponsiveContainer>
             </div>
           )}
@@ -265,59 +461,150 @@ export default function AnalyticsReports() {
             )}
           </div>
 
-          {topIPs.length > 0 && (
-            <div className="table-card">
-              <h3>Top IP Addresses</h3>
-              <table>
-                <thead>
-                  <tr>
-                    <th>IP Address</th>
-                    <th>Visits</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {topIPs.map((item) => (
-                    <tr key={item.ip}>
-                      <td>{item.ip}</td>
-                      <td>{item.visits}</td>
+          <div className="charts-row">
+            {topIPs.length > 0 && (
+              <div className="table-card">
+                <h3>Top IP Addresses</h3>
+                <table>
+                  <thead>
+                    <tr>
+                      <th>IP Address</th>
+                      <th>Visits</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+                  </thead>
+                  <tbody>
+                    {topIPs.slice(0, 5).map((item) => (
+                      <tr key={item.ip}>
+                        <td>{item.ip}</td>
+                        <td>{item.visits}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            
+            {topUsers.length > 0 && (
+              <div className="table-card">
+                <h3>Top Users</h3>
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Email</th>
+                      <th>Visits</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {topUsers.slice(0, 5).map((item, idx) => (
+                      <tr key={idx}>
+                        <td>{item.email}</td>
+                        <td>{item.visits}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
 
-          {loginHistory.length > 0 && (
-            <div className="table-card">
-              <h3>Recent Login Sessions</h3>
-              <table>
-                <thead>
-                  <tr>
-                    <th>User</th>
-                    <th>IP Address</th>
-                    <th>Device</th>
-                    <th>Time</th>
-                    <th>Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {loginHistory.map((session) => (
-                    <tr key={session.id}>
-                      <td>{session.user_email || session.username_attempted || "N/A"}</td>
-                      <td>{session.ip}</td>
-                      <td>{session.device_type}</td>
-                      <td>{format(new Date(session.login_at), "MMM d, HH:mm")}</td>
-                      <td>
-                        <span className={`status-badge status-${session.status}`}>
-                          {session.status}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+          <div className="table-card login-history-card">
+            <div className="table-header">
+              <h3>Login History</h3>
+              <button className="secondary-button" onClick={downloadLoginHistoryCSV}>
+                <Download size={16} />
+                Export CSV
+              </button>
             </div>
-          )}
+            
+            <div className="login-filters">
+              <div className="filter-group">
+                <Search size={16} />
+                <input
+                  type="text"
+                  placeholder="Search by email..."
+                  value={loginSearch}
+                  onChange={(e) => { setLoginSearch(e.target.value); setLoginPage(0); }}
+                />
+              </div>
+              <div className="filter-group">
+                <input
+                  type="text"
+                  placeholder="Filter by IP..."
+                  value={loginIPFilter}
+                  onChange={(e) => { setLoginIPFilter(e.target.value); setLoginPage(0); }}
+                />
+              </div>
+              <div className="filter-group">
+                <select
+                  value={loginStatusFilter}
+                  onChange={(e) => { setLoginStatusFilter(e.target.value); setLoginPage(0); }}
+                >
+                  <option value="">All Statuses</option>
+                  <option value="success">Success</option>
+                  <option value="failed">Failed</option>
+                  <option value="logged_out">Logged Out</option>
+                  <option value="expired">Expired</option>
+                </select>
+              </div>
+            </div>
+            
+            {loginHistory.length > 0 ? (
+              <>
+                <div className="table-responsive">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>User</th>
+                        <th>IP Address</th>
+                        <th>Browser</th>
+                        <th>Device</th>
+                        <th>Time</th>
+                        <th>Status</th>
+                        <th>Reason</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {loginHistory.map((session) => (
+                        <tr key={session.id}>
+                          <td>{session.user_email || session.username_attempted || "N/A"}</td>
+                          <td>{session.ip}</td>
+                          <td>{session.browser || "N/A"}</td>
+                          <td>{session.device_type || "N/A"}</td>
+                          <td>{format(new Date(session.login_at), "MMM d, yyyy HH:mm")}</td>
+                          <td>
+                            <span className={`status-badge status-${session.status}`}>
+                              {session.status}
+                            </span>
+                          </td>
+                          <td>{session.failure_reason || "-"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                
+                <div className="pagination">
+                  <button
+                    disabled={loginPage === 0}
+                    onClick={() => setLoginPage((p) => p - 1)}
+                    className="secondary-button"
+                  >
+                    Previous
+                  </button>
+                  <span>Page {loginPage + 1} of {Math.ceil(loginTotal / 50)}</span>
+                  <button
+                    disabled={(loginPage + 1) * 50 >= loginTotal}
+                    onClick={() => setLoginPage((p) => p + 1)}
+                    className="secondary-button"
+                  >
+                    Next
+                  </button>
+                </div>
+              </>
+            ) : (
+              <p className="empty-message">No login history found for this period.</p>
+            )}
+          </div>
         </>
       )}
     </div>

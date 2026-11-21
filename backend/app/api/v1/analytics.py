@@ -328,3 +328,58 @@ def export_analytics_csv(
         media_type="text/csv",
         headers={"Content-Disposition": f"attachment; filename=analytics_{start_date.date()}_{end_date.date()}.csv"}
     )
+
+
+@router.get("/login-history/export")
+def export_login_history_csv(
+    start_date: Optional[datetime] = None,
+    end_date: Optional[datetime] = None,
+    user_email: Optional[str] = None,
+    ip: Optional[str] = None,
+    status: Optional[str] = None,
+    db: Session = Depends(get_db),
+    _admin: User = Depends(require_admin),
+):
+    """Export login history as CSV."""
+    
+    query = db.query(LoginSession).join(User, LoginSession.user_id == User.id, isouter=True)
+    
+    if user_email:
+        query = query.filter(User.email.ilike(f"%{user_email}%"))
+    if ip:
+        query = query.filter(LoginSession.ip_address.ilike(f"%{ip}%"))
+    if status:
+        query = query.filter(LoginSession.status == status)
+    if start_date:
+        query = query.filter(LoginSession.login_at >= start_date)
+    if end_date:
+        query = query.filter(LoginSession.login_at <= end_date)
+    
+    sessions = query.order_by(LoginSession.login_at.desc()).limit(10000).all()
+    
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["Login Time", "User Email", "Username Attempted", "IP", "Browser", "Device", "Status", "Failure Reason", "Logout Time", "Duration (s)"])
+    
+    for s in sessions:
+        user_email_val = db.query(User.email).filter(User.id == s.user_id).scalar() if s.user_id else ""
+        writer.writerow([
+            s.login_at.isoformat() if s.login_at else "",
+            user_email_val,
+            s.username_attempted or "",
+            s.ip_address,
+            s.browser or "",
+            s.device_type or "",
+            s.status,
+            s.failure_reason or "",
+            s.logout_at.isoformat() if s.logout_at else "",
+            s.duration or "",
+        ])
+    
+    output.seek(0)
+    filename = f"login_history_{datetime.now().date()}.csv"
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename={filename}"}
+    )
