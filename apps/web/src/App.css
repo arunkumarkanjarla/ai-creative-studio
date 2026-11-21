@@ -2890,10 +2890,13 @@
   
   /* Voice input styles */
   .voice-input-wrapper {
-    position: relative;
+    position: absolute;
+    bottom: 8px;
+    right: 8px;
     display: inline-flex;
     align-items: center;
     gap: 8px;
+    z-index: 2;
   }
   
   .voice-input-button {
@@ -2903,10 +2906,11 @@
     justify-content: center;
     width: 40px;
     height: 40px;
-    border-radius: 8px;
+    border-radius: 50%;
     border: 1px solid var(--border);
-    background: var(--bg-input);
+    background: var(--bg-card);
     color: var(--text-secondary);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
     cursor: pointer;
     transition: all 0.2s;
   }
@@ -3024,13 +3028,12 @@
   }
   
   .prompt-with-voice {
-    display: flex;
-    gap: 8px;
-    align-items: flex-start;
+    position: relative;
   }
   
   .prompt-with-voice textarea {
-    flex: 1;
+    width: 100%;
+    padding-right: 56px;
   }
 
   /* Touch device optimizations */
