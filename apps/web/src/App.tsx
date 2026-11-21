@@ -35,6 +35,7 @@ import Register from "./pages/Register";
 import AIAccessSettings from "./pages/Admin/AIAccessSettings";
 import ImageHistory from "./pages/Admin/ImageHistory";
 import ReferenceList from "./pages/Admin/ReferenceList";
+import AnalyticsReports from "./pages/AnalyticsReports";
 
 import "./App.css";
 
@@ -163,6 +164,7 @@ function App() {
                   <Route path="/admin/ai-access" element={<AIAccessSettings />} />
                   <Route path="/admin/images" element={<ImageHistory />} />
                   <Route path="/admin/references" element={<ReferenceList />} />
+                  <Route path="/admin/analytics" element={<AnalyticsReports />} />
                 </Route>
               </Route>
             </Route>

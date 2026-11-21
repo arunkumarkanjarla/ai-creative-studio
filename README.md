@@ -2,6 +2,31 @@
 
 Monorepo for web, mobile, and backend creative AI tools.
 
+## Setup Instructions
+
+### Database Migration (Windows)
+
+To create the analytics tables locally:
+
+```bash
+# In backend directory
+cd backend
+
+# Ensure .env file has DATABASE_URL and JWT_SECRET_KEY
+# Example: DATABASE_URL=postgresql://user:password@localhost:5432/ai_creative_studio
+
+# Install dependencies if not already done
+pip install -r requirements.txt
+
+# Create all tables (including new analytics tables)
+python -c "from app.db.database import engine; from app.db.base import Base; Base.metadata.create_all(bind=engine)"
+```
+
+Tables created:
+- `visitor_sessions` - Page visits and visitor tracking
+- `login_sessions` - Login history and authentication events
+- `usage_events` - Studio usage and generation events
+
 ## Voice Input
 
 Voice input works in Chrome/Edge using the Web Speech API. Firefox/Safari can use MediaRecorder with backend transcription.

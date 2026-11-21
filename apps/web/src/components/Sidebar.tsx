@@ -16,6 +16,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Lock,
+  BarChart3,
   type LucideIcon,
 } from "lucide-react";
 
@@ -128,6 +129,13 @@ export default function Sidebar({
         to: "/admin/references",
         label: "Reference Styles",
         icon: FileImage,
+        visible: !guestMode && isAdmin,
+      },
+      {
+        id: "analytics",
+        to: "/admin/analytics",
+        label: "Analytics Reports",
+        icon: BarChart3,
         visible: !guestMode && isAdmin,
       },
       {

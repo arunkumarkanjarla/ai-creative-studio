@@ -11,6 +11,7 @@ from app.api.v1.images import router as images_router
 from app.api.v1.ai_access import router as ai_access_router
 from app.api.v1.preview import router as preview_router
 from app.api.v1.transcribe import router as transcribe_router
+from app.api.v1.analytics import router as analytics_router
 
 
 # Do NOT load AI models here.
@@ -41,6 +42,7 @@ app.include_router(images_router, prefix="/api/v1")
 app.include_router(ai_access_router, prefix="/api/v1")
 app.include_router(preview_router, prefix="/api/v1")
 app.include_router(transcribe_router, prefix="/api/v1")
+app.include_router(analytics_router, prefix="/api/v1")
 
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
