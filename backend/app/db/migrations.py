@@ -86,6 +86,47 @@ def run_migrations(db: Session):
                 db.execute(text(migration))
             except Exception as video_err:
                 print(f"Video migration note: {video_err}")
+
+        # Refresh tokens for persistent login (hashed opaque tokens)
+        create_refresh_tokens = """
+        CREATE TABLE IF NOT EXISTS refresh_tokens (
+            id SERIAL PRIMARY KEY,
+            user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            token_hash VARCHAR(64) NOT NULL UNIQUE,
+            family_id VARCHAR(64) NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            last_used_at TIMESTAMPTZ,
+            expires_at TIMESTAMPTZ NOT NULL,
+            user_agent TEXT,
+            ip_address VARCHAR(64),
+            revoked BOOLEAN NOT NULL DEFAULT FALSE,
+            revoked_at TIMESTAMPTZ,
+            revoked_reason VARCHAR(64),
+            replaced_by_id INTEGER
+        )
+        """
+        db.execute(text(create_refresh_tokens))
+        refresh_indexes = [
+            "CREATE INDEX IF NOT EXISTS ix_refresh_tokens_user_id ON refresh_tokens(user_id)",
+            "CREATE INDEX IF NOT EXISTS ix_refresh_tokens_token_hash ON refresh_tokens(token_hash)",
+            "CREATE INDEX IF NOT EXISTS ix_refresh_tokens_family_id ON refresh_tokens(family_id)",
+            "CREATE INDEX IF NOT EXISTS ix_refresh_tokens_expires_at ON refresh_tokens(expires_at)",
+            "CREATE INDEX IF NOT EXISTS ix_refresh_tokens_revoked ON refresh_tokens(revoked)",
+            "CREATE INDEX IF NOT EXISTS ix_refresh_tokens_user_active ON refresh_tokens(user_id, revoked, expires_at)",
+            "CREATE INDEX IF NOT EXISTS ix_refresh_tokens_family ON refresh_tokens(family_id, revoked)",
+        ]
+        for index_sql in refresh_indexes:
+            db.execute(text(index_sql))
+
+        # Optional per-scene background image for Video Studio
+        try:
+            db.execute(
+                text(
+                    "ALTER TABLE video_scenes ADD COLUMN IF NOT EXISTS image_path VARCHAR(500)"
+                )
+            )
+        except Exception as scene_err:
+            print(f"Video scene image_path migration note: {scene_err}")
         
         db.commit()
         print("✓ Database migrations completed")

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Mic, MicOff, AlertCircle } from "lucide-react";
+import { apiFetch } from "../services/api";
 
 interface VoiceInputProps {
   onTranscript: (text: string) => void;
@@ -286,7 +287,7 @@ export default function VoiceInput({
       formData.append("audio", audioBlob, "audio.webm");
       formData.append("language", language.split("-")[0]);
 
-      const response = await fetch("/api/v1/transcribe", {
+      const response = await apiFetch("/transcribe", {
         method: "POST",
         body: formData,
       });

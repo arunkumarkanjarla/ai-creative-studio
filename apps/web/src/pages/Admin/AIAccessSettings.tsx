@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
-
-const API_BASE = "http://localhost:8000/api/v1";
+import { apiRequest } from "../../services/api";
 
 type Studio = "image" | "audio" | "video";
 
@@ -26,21 +25,9 @@ export default function AIAccessSettings() {
   const [saving, setSaving] = useState<Studio | null>(null);
   const [message, setMessage] = useState("");
 
-  const token = localStorage.getItem("access_token");
-
   const loadSettings = async () => {
     try {
-      const response = await fetch(`${API_BASE}/ai-access/settings`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      if (!response.ok) {
-        throw new Error("Unable to load AI access settings.");
-      }
-
-      const data = await response.json();
+      const data = await apiRequest<StudioSetting[]>("/ai-access/settings");
       setSettings(data);
     } catch (error) {
       setMessage(
@@ -72,14 +59,10 @@ export default function AIAccessSettings() {
     setMessage("");
 
     try {
-      const response = await fetch(
-        `${API_BASE}/ai-access/settings/${setting.studio}`,
+      const result = await apiRequest<StudioSetting>(
+        `/ai-access/settings/${setting.studio}`,
         {
           method: "PATCH",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
           body: JSON.stringify({
             guest_access_enabled: setting.guest_access_enabled,
             guest_generation_limit: setting.guest_generation_limit,
@@ -91,12 +74,6 @@ export default function AIAccessSettings() {
           }),
         }
       );
-
-      const result = await response.json();
-
-      if (!response.ok) {
-        throw new Error(result.detail || "Unable to save settings.");
-      }
 
       setSettings((previous) =>
         previous.map((item) =>

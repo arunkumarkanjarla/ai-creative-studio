@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Download, Trash2, Play, Pause, Search, FileDown } from "lucide-react";
-import { apiRequest } from "../../../services/api";
+import { apiRequest, apiFetch, apiFetchBlob } from "../../../services/api";
 
 export default function AdminGeneratedVideos() {
   const [items, setItems] = useState<any[]>([]);
@@ -36,12 +36,8 @@ export default function AdminGeneratedVideos() {
   }, [page, search, status, category, engine]);
 
   const authFetchBlob = async (path: string) => {
-    const token = localStorage.getItem("access_token");
-    const res = await fetch(`http://localhost:8000${path}`, {
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
-    });
-    if (!res.ok) throw new Error("Failed");
-    return URL.createObjectURL(await res.blob());
+    const blob = await apiFetchBlob(path);
+    return URL.createObjectURL(blob);
   };
 
   const play = async (item: any) => {
@@ -82,26 +78,14 @@ export default function AdminGeneratedVideos() {
   };
 
   const exportCsv = () => {
-    const token = localStorage.getItem("access_token");
-    window.open(
-      `http://localhost:8000/api/v1/admin/video/generated/export?${new URLSearchParams({
-        search,
-        status,
-        category,
-        engine,
-      })}`,
-      "_blank"
-    );
-    // Prefer authenticated fetch when possible
     void (async () => {
-      const res = await fetch(
-        `http://localhost:8000/api/v1/admin/video/generated/export?${new URLSearchParams({
+      const res = await apiFetch(
+        `/admin/video/generated/export?${new URLSearchParams({
           search,
           status,
           category,
           engine,
-        })}`,
-        { headers: token ? { Authorization: `Bearer ${token}` } : {} }
+        })}`
       );
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);

@@ -77,6 +77,22 @@ class TokenResponse(BaseModel):
 
     token_type: str = "bearer"
 
+    refresh_token: str | None = None
+
+    expires_in: int | None = None
+
+
+class RefreshRequest(BaseModel):
+
+    refresh_token: str = Field(min_length=16)
+
+
+class LogoutRequest(BaseModel):
+
+    refresh_token: str | None = None
+
+    all_devices: bool = False
+
 
 class UserRegister(BaseModel):
     name: str = Field(min_length=2, max_length=150)

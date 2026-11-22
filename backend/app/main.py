@@ -36,6 +36,7 @@ async def lifespan(app: FastAPI):
     from app.models.audio_events import AudioEvent
     from app.models.video import VideoProject, VideoScene, VideoCharacter
     from app.models.video_events import VideoEvent
+    from app.models.refresh_token import RefreshToken  # noqa: F401
     
     # Create all tables if they don't exist
     print("Creating database tables...")

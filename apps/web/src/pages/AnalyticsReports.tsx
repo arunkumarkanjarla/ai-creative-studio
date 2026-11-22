@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { BarChart, Bar, LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
 import { format, subDays, startOfDay, endOfDay, parseISO } from "date-fns";
 import { Calendar, TrendingUp, TrendingDown, Users, LogIn, Image, Download, Search, AlertTriangle, Activity } from "lucide-react";
-import { apiRequest } from "../services/api";
+import { apiRequest, apiFetch } from "../services/api";
 
 const CHART_COLORS = ["var(--accent)", "var(--accent-strong)", "var(--text-secondary)", "var(--text-muted)"];
 const STUDIO_COLORS = {
@@ -213,7 +213,17 @@ export default function AnalyticsReports() {
         start_date: startDate,
         end_date: endDate,
       });
-      window.open(`http://localhost:8000/api/v1/analytics/export/csv?${params}`, "_blank");
+      const response = await apiFetch(`/analytics/export/csv?${params}`);
+      if (!response.ok) throw new Error("Export failed");
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `analytics_${format(new Date(), "yyyy-MM-dd")}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
     } catch (err) {
       console.error("Failed to download CSV:", err);
     }
@@ -221,7 +231,6 @@ export default function AnalyticsReports() {
   
   const downloadLoginHistoryCSV = async () => {
     try {
-      const token = localStorage.getItem("access_token");
       const params = new URLSearchParams({
         start_date: startDate,
         end_date: endDate,
@@ -230,11 +239,7 @@ export default function AnalyticsReports() {
       if (loginIPFilter) params.append("ip", loginIPFilter);
       if (loginStatusFilter) params.append("status", loginStatusFilter);
       
-      const response = await fetch(`http://localhost:8000/api/v1/analytics/login-history/export?${params}`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
+      const response = await apiFetch(`/analytics/login-history/export?${params}`);
       
       if (!response.ok) throw new Error("Export failed");
       

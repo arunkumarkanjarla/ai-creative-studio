@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { AudioLines, Download, Trash2, ChevronLeft, ChevronRight, FileDown, Search } from "lucide-react";
 import { format, parseISO } from "date-fns";
-import { apiRequest } from "../../../services/api";
+import { apiRequest, apiFetch } from "../../../services/api";
 
 interface GeneratedAudioItem {
   id: number;
@@ -99,10 +99,7 @@ export default function AdminGeneratedAudio() {
     }
 
     try {
-      const token = localStorage.getItem("access_token");
-      const response = await fetch(`http://localhost:8000/api/v1/admin/audio/generated/${item.id}/download`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const response = await apiFetch(`/admin/audio/generated/${item.id}/download`);
 
       if (!response.ok) throw new Error("Failed to fetch audio");
 
@@ -131,10 +128,7 @@ export default function AdminGeneratedAudio() {
 
   const downloadAudio = async (item: GeneratedAudioItem) => {
     try {
-      const token = localStorage.getItem("access_token");
-      const response = await fetch(`http://localhost:8000/api/v1/admin/audio/generated/${item.id}/download`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const response = await apiFetch(`/admin/audio/generated/${item.id}/download`);
 
       if (!response.ok) throw new Error("Failed to download");
 
@@ -196,10 +190,7 @@ export default function AdminGeneratedAudio() {
       if (dateFrom) params.append("date_from", dateFrom);
       if (dateTo) params.append("date_to", dateTo);
 
-      const token = localStorage.getItem("access_token");
-      const response = await fetch(`http://localhost:8000/api/v1/admin/audio/generated/export?${params}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const response = await apiFetch(`/admin/audio/generated/export?${params}`);
 
       if (!response.ok) throw new Error("Export failed");
 

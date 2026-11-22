@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { FileDown, Search } from "lucide-react";
-import { apiRequest } from "../../../services/api";
+import { apiRequest, apiFetch } from "../../../services/api";
 
 export default function AdminVideoEventLog() {
   const [items, setItems] = useState<any[]>([]);
@@ -29,14 +29,10 @@ export default function AdminVideoEventLog() {
   }, [page, action, status, search]);
 
   const exportCsv = async () => {
-    const token = localStorage.getItem("access_token");
     const params = new URLSearchParams();
     if (action) params.set("action", action);
     if (status) params.set("status", status);
-    const res = await fetch(
-      `http://localhost:8000/api/v1/admin/video/events/export?${params}`,
-      { headers: token ? { Authorization: `Bearer ${token}` } : {} }
-    );
+    const res = await apiFetch(`/admin/video/events/export?${params}`);
     const blob = await res.blob();
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");

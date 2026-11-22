@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { AudioLines, Play, Pause, Download, Trash2, Upload, FileText, Languages, Volume2, Gauge, Settings } from "lucide-react";
 import VoiceInput from "../../components/VoiceInput";
-import { apiRequest } from "../../services/api";
+import { apiRequest, apiFetchBlob, getAccessToken } from "../../services/api";
 
 type Mode = "tts" | "stt" | "history";
 
@@ -131,7 +131,7 @@ export default function AudioStudio() {
     if (!ttsText.trim() || !selectedVoice) return;
     
     // Check if trying to use custom voice without being logged in
-    const token = localStorage.getItem("access_token");
+    const token = getAccessToken();
     if (!token && selectedVoice.is_custom) {
       if (confirm("Custom voices are only available to signed-in users. Would you like to sign in now?")) {
         window.location.href = "/login";
@@ -216,28 +216,7 @@ export default function AudioStudio() {
     }
 
     try {
-      const token = localStorage.getItem("access_token");
-      const visitorId = localStorage.getItem("visitor_id");
-      const apiUrl = "http://localhost:8000"; // Backend URL
-      
-      const headers: Record<string, string> = {
-        "X-Visitor-Id": visitorId || "",
-      };
-      
-      // Only add Authorization if token exists
-      if (token) {
-        headers["Authorization"] = `Bearer ${token}`;
-      }
-      
-      const response = await fetch(`${apiUrl}${url}`, {
-        headers,
-      });
-
-      if (!response.ok) {
-        throw new Error(`Failed to fetch media: ${response.statusText}`);
-      }
-
-      const blob = await response.blob();
+      const blob = await apiFetchBlob(url);
       const blobUrl = URL.createObjectURL(blob);
       
       // Cache the blob URL
@@ -375,22 +354,10 @@ export default function AudioStudio() {
     
     try {
       setLoadingPreview(voice.voice_id);
-      
-      const API_BASE_URL = "http://localhost:8000/api/v1";
-      const url = `${API_BASE_URL}/audio/voices/${voice.voice_id}/preview`;
-      const visitorId = localStorage.getItem('visitor-id') || 'unknown';
-      
-      const response = await fetch(url, {
-        headers: {
-          'X-Visitor-Id': visitorId
-        }
-      });
-      
-      if (!response.ok) {
-        throw new Error(`Preview failed: ${response.statusText}`);
-      }
-      
-      const blob = await response.blob();
+
+      const blob = await apiFetchBlob(
+        `/api/v1/audio/voices/${voice.voice_id}/preview`
+      );
       const audioUrl = URL.createObjectURL(blob);
       
       const audio = new Audio(audioUrl);
@@ -470,11 +437,11 @@ export default function AudioStudio() {
             
             <div className="prompt-with-voice">
               <textarea
-                placeholder={`Enter text to convert to speech (up to ${localStorage.getItem("access_token") ? "5000" : "1000"} characters)...`}
+                placeholder={`Enter text to convert to speech (up to ${getAccessToken() ? "5000" : "1000"} characters)...`}
                 rows={6}
                 value={ttsText}
                 onChange={(e) => setTtsText(e.target.value)}
-                maxLength={localStorage.getItem("access_token") ? 5000 : 1000}
+                maxLength={getAccessToken() ? 5000 : 1000}
               />
               <VoiceInput
                 onTranscript={(text) => {
@@ -485,8 +452,8 @@ export default function AudioStudio() {
             </div>
             
             <div style={{ fontSize: "12px", color: "var(--text-muted)", marginTop: "8px" }}>
-              {ttsText.length} / {localStorage.getItem("access_token") ? "5000" : "1000"} characters
-              {!localStorage.getItem("access_token") && " (Sign in for 5000 characters)"}
+              {ttsText.length} / {getAccessToken() ? "5000" : "1000"} characters
+              {!getAccessToken() && " (Sign in for 5000 characters)"}
             </div>
 
             <div className="audio-controls">

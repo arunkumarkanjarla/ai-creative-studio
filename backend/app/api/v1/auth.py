@@ -1,26 +1,43 @@
 
-from typing import Annotated
+from typing import Annotated, Optional
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, status, Request
+from fastapi import APIRouter, Depends, HTTPException, status, Request, Body
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from sqlalchemy import select
 
 from app.db.database import get_db
 from app.models.user import User
-from app.schemas.user import UserRegister
+from app.schemas.user import UserRegister, RefreshRequest, LogoutRequest
 from app.core.security import (
     verify_password,
     create_access_token,
-    hash_password
+    hash_password,
+    access_token_expires_in_seconds,
 )
 from app.schemas.user import TokenResponse, UserResponse
-from app.api.v1.dependencies import get_current_user
+from app.api.v1.dependencies import get_current_user, get_optional_user
 from app.core.analytics import track_login_attempt, get_client_ip
+from app.services.refresh_token_service import (
+    RefreshTokenError,
+    issue_refresh_token,
+    rotate_refresh_token,
+    revoke_by_plaintext,
+    revoke_user_tokens,
+)
 
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
+
+
+def _token_payload(access: str, refresh: str) -> dict:
+    return {
+        "access_token": access,
+        "token_type": "bearer",
+        "refresh_token": refresh,
+        "expires_in": access_token_expires_in_seconds(),
+    }
 
 
 @router.post("/login", response_model=TokenResponse)
@@ -101,12 +118,46 @@ def login(
         failure_reason=None
     )
 
-    token = create_access_token(user.id)
+    access = create_access_token(user.id)
+    refresh, _ = issue_refresh_token(
+        db,
+        user.id,
+        user_agent=user_agent,
+        ip_address=ip,
+    )
+    db.commit()
 
-    return {
-        "access_token": token,
-        "token_type": "bearer"
-    }
+    return _token_payload(access, refresh)
+
+
+@router.post("/refresh", response_model=TokenResponse)
+def refresh_tokens(
+    request: Request,
+    body: RefreshRequest,
+    db: Annotated[Session, Depends(get_db)],
+):
+    """Rotate refresh token and issue a new short-lived access token."""
+    forwarded_for = request.headers.get("X-Forwarded-For")
+    ip = get_client_ip(request, forwarded_for)
+    user_agent = request.headers.get("User-Agent")
+
+    try:
+        user, new_refresh, _ = rotate_refresh_token(
+            db,
+            body.refresh_token,
+            user_agent=user_agent,
+            ip_address=ip,
+        )
+        access = create_access_token(user.id)
+        db.commit()
+        return _token_payload(access, new_refresh)
+    except RefreshTokenError as err:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=err.message,
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
 
 @router.get("/me", response_model=UserResponse)
@@ -141,39 +192,58 @@ def get_me(
 
 @router.post("/logout")
 def logout(
-    current_user: Annotated[User, Depends(get_current_user)],
-    db: Session = Depends(get_db)
+    request: Request,
+    db: Annotated[Session, Depends(get_db)],
+    current_user: Annotated[Optional[User], Depends(get_optional_user)] = None,
+    body: Optional[LogoutRequest] = Body(default=None),
 ):
-    """Mark the current user session as logged out."""
+    """
+    Revoke the presented refresh token (and optionally all devices).
+    Also marks the analytics login session as logged out when authenticated.
+    """
     from app.models.analytics import LoginSession
+
+    payload = body or LogoutRequest()
     now = datetime.utcnow()
-    
+    revoked = False
+
     try:
-        # Find the most recent active session for this user
-        active_session = db.query(LoginSession).filter(
-            LoginSession.user_id == current_user.id,
-            LoginSession.status == "success",
-            LoginSession.logout_at.is_(None)
-        ).order_by(LoginSession.login_at.desc()).first()
-        
-        if active_session:
-            active_session.logout_at = now
-            active_session.status = "logged_out"
-            
-            # Calculate duration in seconds
-            login_time = active_session.last_seen_at or active_session.login_at
-            duration_seconds = int((now - login_time).total_seconds())
-            active_session.duration = duration_seconds
-            
-            db.commit()
-            
-            return {
-                "message": "Logged out successfully",
-                "session_duration_seconds": duration_seconds
-            }
-        else:
-            return {"message": "No active session found"}
-    
+        if payload.all_devices and current_user is not None:
+            revoke_user_tokens(db, current_user.id, reason="logout_all")
+            revoked = True
+        elif payload.refresh_token:
+            revoked = revoke_by_plaintext(
+                db, payload.refresh_token, reason="logout"
+            )
+        elif current_user is not None:
+            # No refresh token provided — revoke all as a safe default for logout
+            revoke_user_tokens(db, current_user.id, reason="logout")
+            revoked = True
+
+        session_duration = None
+        if current_user is not None:
+            active_session = db.query(LoginSession).filter(
+                LoginSession.user_id == current_user.id,
+                LoginSession.status == "success",
+                LoginSession.logout_at.is_(None)
+            ).order_by(LoginSession.login_at.desc()).first()
+
+            if active_session:
+                active_session.logout_at = now
+                active_session.status = "logged_out"
+                login_time = active_session.last_seen_at or active_session.login_at
+                session_duration = int((now - login_time).total_seconds())
+                active_session.duration = session_duration
+
+        db.commit()
+        result = {
+            "message": "Logged out successfully" if revoked else "Logged out",
+            "revoked": revoked,
+        }
+        if session_duration is not None:
+            result["session_duration_seconds"] = session_duration
+        return result
+
     except Exception as e:
         print(f"[Auth] Failed to logout: {e}")
         db.rollback()

@@ -5,7 +5,7 @@ import {
   Calendar, Users, AudioLines, Play, Download, FileText, 
   TrendingUp, ChevronLeft, ChevronRight 
 } from "lucide-react";
-import { apiRequest } from "../../services/api";
+import { apiRequest, apiFetch } from "../../services/api";
 
 const CHART_COLORS = ["var(--accent)", "var(--accent-strong)", "var(--text-secondary)", "var(--text-muted)"];
 
@@ -196,11 +196,7 @@ export default function AudioActivity({
       if (eventFilters.action) params.append("action", eventFilters.action);
       if (eventFilters.status) params.append("status", eventFilters.status);
       
-      const response = await fetch(`http://localhost:8000/api/v1/analytics/audio/events/csv?${params}`, {
-        headers: {
-          Authorization: `Bearer ${localStorage.getItem("access_token")}`
-        }
-      });
+      const response = await apiFetch(`/analytics/audio/events/csv?${params}`);
       
       if (!response.ok) throw new Error("Export failed");
       

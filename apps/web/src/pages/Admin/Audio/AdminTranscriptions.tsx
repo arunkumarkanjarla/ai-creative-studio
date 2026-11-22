@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { FileText, Trash2, ChevronLeft, ChevronRight, FileDown, Search } from "lucide-react";
 import { format, parseISO } from "date-fns";
-import { apiRequest } from "../../../services/api";
+import { apiRequest, apiFetch } from "../../../services/api";
 
 interface TranscriptionItem {
   id: number;
@@ -84,11 +84,7 @@ export default function AdminTranscriptions() {
 
   const downloadFile = async (id: number, type: "txt" | "srt") => {
     try {
-      const token = localStorage.getItem("access_token");
-      const response = await fetch(
-        `http://localhost:8000/api/v1/audio/download/transcription/${id}/${type}`,
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
+      const response = await apiFetch(`/audio/download/transcription/${id}/${type}`);
 
       if (!response.ok) throw new Error("Failed to download");
 
@@ -149,11 +145,7 @@ export default function AdminTranscriptions() {
       if (dateFrom) params.append("date_from", dateFrom);
       if (dateTo) params.append("date_to", dateTo);
 
-      const token = localStorage.getItem("access_token");
-      const response = await fetch(
-        `http://localhost:8000/api/v1/admin/audio/transcriptions/export?${params}`,
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
+      const response = await apiFetch(`/admin/audio/transcriptions/export?${params}`);
 
       if (!response.ok) throw new Error("Export failed");
 

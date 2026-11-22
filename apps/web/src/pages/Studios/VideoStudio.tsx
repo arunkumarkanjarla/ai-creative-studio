@@ -11,7 +11,7 @@ import {
   LogIn,
 } from "lucide-react";
 import VoiceInput from "../../components/VoiceInput";
-import { apiRequest } from "../../services/api";
+import { apiRequest, apiFetchBlob } from "../../services/api";
 import { useAuth } from "../../context/AuthContext";
 
 type Tab = "create" | "gallery" | "details";
@@ -178,12 +178,7 @@ export default function VideoStudio() {
 
   const fetchBlobUrl = async (path: string) => {
     if (blobCache.current.has(path)) return blobCache.current.get(path)!;
-    const token = localStorage.getItem("access_token");
-    const res = await fetch(`http://localhost:8000${path}`, {
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
-    });
-    if (!res.ok) throw new Error("Failed to load media");
-    const blob = await res.blob();
+    const blob = await apiFetchBlob(path);
     const url = URL.createObjectURL(blob);
     blobCache.current.set(path, url);
     return url;
