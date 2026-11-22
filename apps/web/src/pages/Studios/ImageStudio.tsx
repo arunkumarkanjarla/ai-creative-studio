@@ -6,11 +6,12 @@ import {
   Lock,
   Sparkles,
   Upload,
+  X,
 } from "lucide-react";
 
-import GenerationProgress from "../../components/GenerationProgress";
 import { useAuth } from "../../context/AuthContext";
 import { apiRequest, mediaUrl } from "../../services/api";
+import VoiceInput from "../../components/VoiceInput";
 import {
   CREATE_TOOLS,
   DIMENSIONS,
@@ -48,7 +49,13 @@ interface JobStatusResponse {
   result: GeneratedItem | null;
 }
 
-type RunMode = "preview" | "generate";
+interface PreviewSampleResponse {
+  preview_url: string | null;
+  key: string;
+  photographer?: string;
+  source?: string;
+  error?: string;
+}
 
 function useObjectUrl(file: File | null) {
   const [url, setUrl] = useState<string | null>(null);
@@ -91,12 +98,12 @@ export default function ImageStudio() {
   const [scene, setScene] = useState<(typeof SCENES)[number]>("Beach");
 
   const [loading, setLoading] = useState(false);
-  const [runMode, setRunMode] = useState<RunMode | null>(null);
   const [progress, setProgress] = useState(0);
-  const [progressMessage, setProgressMessage] = useState("");
   const [error, setError] = useState("");
   const [latest, setLatest] = useState<GeneratedItem | null>(null);
-  const [previewResult, setPreviewResult] = useState<GeneratedItem | null>(null);
+  const [samplePreviewUrl, setSamplePreviewUrl] = useState<string | null>(null);
+  const [showMockPreview, setShowMockPreview] = useState(false);
+  const [previewPanelOpen, setPreviewPanelOpen] = useState(false);
 
   const image1Preview = useObjectUrl(image1);
   const image2Preview = useObjectUrl(image2);
@@ -116,6 +123,40 @@ export default function ImageStudio() {
     [tool.id, prompt, style, scene, photoType]
   );
 
+  // Fetch sample preview URL for mock preview
+  useEffect(() => {
+    async function fetchSamplePreview() {
+      try {
+        const params = new URLSearchParams({
+          style: style,
+          scene: scene,
+          photo_type: photoType,
+        });
+        const response = await apiRequest<PreviewSampleResponse>(
+          `/preview/sample?${params}`
+        );
+        if (response.preview_url) {
+          setSamplePreviewUrl(`http://localhost:8000${response.preview_url}`);
+        } else {
+          setSamplePreviewUrl(null);
+        }
+      } catch (err) {
+        console.warn("Failed to fetch sample preview:", err);
+        setSamplePreviewUrl(null);
+      }
+    }
+    
+    fetchSamplePreview();
+  }, [style, scene, photoType]);
+  
+  // Clear mock preview and close panel when prompt is cleared
+  useEffect(() => {
+    if (!prompt.trim()) {
+      setShowMockPreview(false);
+      setPreviewPanelOpen(false);
+    }
+  }, [prompt]);
+
   useEffect(() => {
     if (!isStudioToolId(toolFromUrl)) {
       setSearchParams({ tool: "text_to_image" }, { replace: true });
@@ -125,10 +166,8 @@ export default function ImageStudio() {
   useEffect(() => {
     setError("");
     setLatest(null);
-    setPreviewResult(null);
     setProgress(0);
-    setProgressMessage("");
-    setRunMode(null);
+    setShowMockPreview(false);
   }, [toolId]);
 
   function clearForm() {
@@ -145,7 +184,6 @@ export default function ImageStudio() {
         `/images/jobs/${jobId}`
       );
       setProgress(status.progress);
-      setProgressMessage(status.message || "Generating...");
 
       if (status.status === "completed" && status.result) {
         return status.result;
@@ -157,69 +195,73 @@ export default function ImageStudio() {
     }
   }
 
-  async function runGeneration(mode: RunMode) {
+  function handlePreview() {
+    // Preview now shows instant mock, no AI generation
     if (!isLoggedIn) {
-      setError("Sign in to preview and generate images.");
+      setError("Sign in to preview images.");
+      return;
+    }
+    
+    if (prompt.trim().length < 3) {
+      setError("Enter a prompt to preview.");
+      return;
+    }
+    
+    setError("");
+    setShowMockPreview(true);
+    setPreviewPanelOpen(true);
+  }
+  
+  function closePreview() {
+    setPreviewPanelOpen(false);
+    setShowMockPreview(false);
+  }
+
+  async function runGeneration() {
+    if (!isLoggedIn) {
+      setError("Sign in to generate images.");
       return;
     }
 
     const finalPrompt = composedPrompt;
-    if (prompt.trim().length < 3 && mode === "preview") {
-      setError("Enter a prompt to preview the generated image.");
-      return;
-    }
     if (finalPrompt.trim().length < 3) {
       setError("Please enter a prompt describing what you want.");
       return;
     }
 
-    // Preview is always prompt-only (no reference upload).
-    // Generate uses uploads when the selected tool needs them.
-    if (mode === "generate") {
-      if (tool.needsImage1 && !image1) {
-        setError("Upload Image 1 to continue.");
-        return;
-      }
-      if (tool.needsImage2 && !image2) {
-        setError("Upload Image 2 to continue.");
-        return;
-      }
+    // Generate uses uploads when the selected tool needs them
+    if (tool.needsImage1 && !image1) {
+      setError("Upload Image 1 to continue.");
+      return;
+    }
+    if (tool.needsImage2 && !image2) {
+      setError("Upload Image 2 to continue.");
+      return;
     }
 
     setLoading(true);
-    setRunMode(mode);
     setProgress(1);
-    setProgressMessage(
-      mode === "preview" ? "Creating preview from prompt..." : "Starting..."
-    );
     setError("");
-    if (mode === "preview") {
-      setPreviewResult(null);
-    } else {
-      setLatest(null);
-    }
+    setLatest(null);
+    setShowMockPreview(false);
+    setPreviewPanelOpen(true); // Show panel during generation
 
     try {
       const form = new FormData();
       form.append("prompt", finalPrompt);
-      form.append(
-        "tool",
-        mode === "preview" ? "text_to_image" : tool.id
-      );
+      form.append("tool", tool.id);
       form.append("width", String(dimension.width));
       form.append("height", String(dimension.height));
       form.append("photo_type", photoType);
       form.append("photo_style", style);
       form.append("scene", scene);
 
-      if (mode === "generate") {
-        const reference = image1 || image2;
-        if (reference) {
-          form.append("reference", reference);
-        }
-        if (image2 && tool.needsImage2) {
-          form.append("reference_secondary", image2);
-        }
+      const reference = image1 || image2;
+      if (reference) {
+        form.append("reference", reference);
+      }
+      if (image2 && tool.needsImage2) {
+        form.append("reference_secondary", image2);
       }
 
       const started = await apiRequest<JobStartResponse>("/images/generate", {
@@ -228,45 +270,61 @@ export default function ImageStudio() {
       });
 
       setProgress(started.progress || 1);
-      setProgressMessage(
-        started.message ||
-          (mode === "preview" ? "Preview queued..." : "Queued...")
-      );
 
       const result = await pollJob(started.job_id);
-      if (mode === "preview") {
-        setPreviewResult(result);
-        setProgressMessage("Preview ready");
-      } else {
-        setLatest(result);
-        setProgressMessage("Done");
-        clearForm();
-      }
       setProgress(100);
+      setLatest(result);
+      clearForm();
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Image generation failed."
       );
     } finally {
       setLoading(false);
-      setRunMode(null);
     }
   }
 
   async function handleGenerate(event: FormEvent) {
     event.preventDefault();
-    await runGeneration("generate");
+    await runGeneration();
+  }
+  
+  // Get CSS filter for photo style
+  function getStyleFilter(styleName: string): string {
+    const filters: Record<string, string> = {
+      "Cinematic": "contrast(1.1) saturate(1.2) brightness(0.95)",
+      "Vintage": "sepia(0.3) contrast(0.9) brightness(1.05)",
+      "Natural": "saturate(0.9) brightness(1.05)",
+      "Studio": "contrast(1.15) brightness(1.05)",
+      "Wedding": "brightness(1.1) saturate(1.1) contrast(0.95)",
+      "Fashion": "contrast(1.2) saturate(1.3)",
+      "Headshot": "contrast(1.1) brightness(1.05)",
+    };
+    return filters[styleName] || "none";
   }
 
   const aspectPadding = `${(dimension.height / dimension.width) * 100}%`;
-  const displayImage =
-    latest?.image_url && !loading
-      ? latest
-      : previewResult?.image_url && !(loading && runMode === "preview")
-        ? previewResult
-        : null;
+  
+  // Show generated image or generating state
+  const displayImage = latest?.image_url ? latest : null;
+  
+  // Show mock preview if user clicked Preview and has a prompt
+  const showMock = showMockPreview && samplePreviewUrl && prompt.trim().length >= 3 && !loading;
+  
+  // Get nice status message based on progress
+  function getProgressStatus(percent: number): string {
+    if (percent < 15) return "Preparing canvas...";
+    if (percent < 30) return "Creating composition...";
+    if (percent < 50) return "Adding details...";
+    if (percent < 70) return "Refining image...";
+    if (percent < 90) return "Finishing touches...";
+    return "Almost ready...";
+  }
+  
   const photoTypeLabel =
     PHOTO_TYPES.find((item) => item.id === photoType)?.label || photoType;
+  
+  const canPreview = isLoggedIn && prompt.trim().length >= 3;
 
   return (
     <div className="photo-studio">
@@ -313,13 +371,21 @@ export default function ImageStudio() {
 
             <label>
               Your prompt
-              <textarea
-                rows={5}
-                placeholder="Describe the image you want to create..."
-                value={prompt}
-                onChange={(e) => setPrompt(e.target.value)}
-                disabled={loading}
-              />
+              <div className="prompt-with-voice">
+                <textarea
+                  rows={5}
+                  placeholder="Describe the image you want to create..."
+                  value={prompt}
+                  onChange={(e) => setPrompt(e.target.value)}
+                  disabled={loading}
+                />
+                <VoiceInput
+                  onTranscript={(text) => {
+                    setPrompt((prev) => (prev ? `${prev} ${text}` : text));
+                  }}
+                  language="en-IN"
+                />
+              </div>
             </label>
 
             {(tool.needsImage1 || tool.id === "text_to_image") && (
@@ -370,18 +436,18 @@ export default function ImageStudio() {
               <button
                 className="secondary-button"
                 type="button"
-                disabled={loading || !isLoggedIn}
-                onClick={() => runGeneration("preview")}
+                disabled={!canPreview || loading}
+                onClick={handlePreview}
                 title={
-                  isLoggedIn
-                    ? "Generate a preview from prompt + settings (no reference)"
-                    : "Sign in to preview"
+                  !isLoggedIn
+                    ? "Sign in to preview"
+                    : !canPreview
+                      ? "Enter a prompt to preview"
+                      : "Show instant preview mock with selected format"
                 }
               >
                 <Eye size={16} />
-                {loading && runMode === "preview"
-                  ? "Previewing..."
-                  : "Preview"}
+                Preview
               </button>
               <button
                 className="primary-button"
@@ -389,72 +455,100 @@ export default function ImageStudio() {
                 disabled={loading || !isLoggedIn}
                 title={
                   isLoggedIn
-                    ? "Generate final image with settings"
+                    ? "Generate final image with AI"
                     : "Sign in to generate images"
                 }
               >
-                {loading && runMode === "generate"
-                  ? "Generating..."
-                  : isLoggedIn
-                    ? "Generate Image"
-                    : "Sign in to Generate"}
+                {loading ? "Generating..." : isLoggedIn ? "Generate Image" : "Sign in to Generate"}
               </button>
               <button
                 className="secondary-button"
                 type="button"
                 disabled={loading}
-                onClick={clearForm}
+                onClick={() => {
+                  clearForm();
+                  setShowMockPreview(false);
+                  setPreviewPanelOpen(false);
+                }}
               >
                 Clear
               </button>
             </div>
           </form>
 
-          <div className="photo-preview-panel">
-            <div className="photo-preview-header">
-              <h3>Live Preview</h3>
-              <span>
-                {dimension.label} · {photoTypeLabel} · {style} · {scene}
-              </span>
-            </div>
+          {previewPanelOpen && (
+            <div className="photo-preview-panel photo-preview-panel-open">
+              <div className="photo-preview-header">
+                <h3>Live Preview</h3>
+                <button
+                  type="button"
+                  className="photo-preview-close"
+                  onClick={closePreview}
+                  aria-label="Close preview"
+                  title="Close preview"
+                >
+                  <X size={18} />
+                </button>
+              </div>
 
-            <div
-              className={`photo-preview-stage${loading ? " is-generating" : ""}`}
-            >
+              <div
+                className={`photo-preview-stage${loading ? " is-generating" : ""}`}
+              >
               <div
                 className="photo-preview-frame"
                 style={{ paddingBottom: aspectPadding }}
               >
                 <div className="photo-preview-inner">
-                  {displayImage?.image_url ? (
+                  {loading ? (
+                    <div className="photo-generating-frame">
+                      <div 
+                        className="photo-generating-blur"
+                        style={{ 
+                          opacity: Math.max(0.2, 1 - (progress / 100)),
+                          filter: `blur(${Math.max(2, 20 - (progress / 5))}px)`
+                        }}
+                      >
+                        <div className="photo-generating-shimmer" />
+                      </div>
+                      {displayImage?.image_url && (
+                        <img
+                          src={mediaUrl(displayImage.image_url) || ""}
+                          alt={displayImage.prompt}
+                          className="photo-preview-result photo-generating-reveal"
+                          style={{ opacity: progress >= 100 ? 1 : 0 }}
+                        />
+                      )}
+                      <div className="photo-generating-status">
+                        <span className="photo-generating-status-text">
+                          {getProgressStatus(progress)}
+                        </span>
+                        <span className="photo-generating-status-percent">
+                          {progress}%
+                        </span>
+                      </div>
+                    </div>
+                  ) : displayImage?.image_url ? (
                     <img
                       src={mediaUrl(displayImage.image_url) || ""}
                       alt={displayImage.prompt}
-                      className="photo-preview-result"
+                      className="photo-preview-result photo-result-fadein"
                     />
-                  ) : (
-                    <div className="photo-preview-placeholder">
-                      <Sparkles size={28} />
-                      <p>
-                        {composedPrompt.trim()
-                          ? "Click Preview to generate from your prompt and settings"
-                          : "Add a prompt, choose settings, then Preview"}
-                      </p>
-                    </div>
-                  )}
-                  {loading && (
-                    <div className="photo-preview-overlay">
-                      <GenerationProgress
-                        progress={progress}
-                        message={
-                          progressMessage ||
-                          (runMode === "preview"
-                            ? "Creating preview..."
-                            : "Generating...")
-                        }
+                  ) : showMock ? (
+                    <div className="photo-preview-mock">
+                      <img
+                        src={samplePreviewUrl}
+                        alt={`${style} ${scene} preview`}
+                        className="photo-preview-result photo-sample-preview"
+                        style={{ filter: getStyleFilter(style) }}
                       />
+                      <div className="photo-preview-mock-caption">
+                        <p><strong>Preview Mock</strong></p>
+                        <p>{dimension.label} ({dimension.width}×{dimension.height}) · {photoTypeLabel}</p>
+                        <p>{style} · {scene}</p>
+                        <p className="photo-preview-mock-prompt">{prompt.substring(0, 100)}{prompt.length > 100 ? "..." : ""}</p>
+                      </div>
                     </div>
-                  )}
+                  ) : null}
                 </div>
               </div>
             </div>
@@ -462,9 +556,7 @@ export default function ImageStudio() {
             <div className="photo-preview-meta">
               <p>
                 <strong>Tool:</strong> {tool.label}
-                {runMode === "preview" || previewResult
-                  ? " · Preview uses prompt only (no reference)"
-                  : ""}
+                {showMock ? " · Preview mock (instant, not AI-generated)" : ""}
               </p>
               <p>
                 <strong>Applied prompt:</strong> {composedPrompt.trim() || "—"}
@@ -474,8 +566,9 @@ export default function ImageStudio() {
                   Generated in {displayImage.generation_time_seconds} seconds
                 </small>
               )}
+              </div>
             </div>
-          </div>
+          )}
         </section>
 
         <aside className="photo-settings">

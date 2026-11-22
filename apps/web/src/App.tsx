@@ -6,11 +6,13 @@ import {
   Routes,
   Outlet,
   Link,
+  useLocation,
 } from "react-router-dom";
-import { Sparkles } from "lucide-react";
+import { Menu, Sparkles } from "lucide-react";
 
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import { ThemeProvider } from "./context/ThemeContext";
+import { trackPageView } from "./services/analytics";
 
 import ProtectedRoute from "./components/ProtectedRoute";
 import AdminRoute from "./components/AdminRoute";
@@ -35,6 +37,23 @@ import Register from "./pages/Register";
 import AIAccessSettings from "./pages/Admin/AIAccessSettings";
 import ImageHistory from "./pages/Admin/ImageHistory";
 import ReferenceList from "./pages/Admin/ReferenceList";
+import AnalyticsReports from "./pages/AnalyticsReports";
+import AudioActivity from "./pages/Admin/AudioActivity";
+
+import AdminAudioOverview from "./pages/Admin/Audio/AdminAudioOverview";
+import AdminGeneratedAudio from "./pages/Admin/Audio/AdminGeneratedAudio";
+import AdminTranscriptions from "./pages/Admin/Audio/AdminTranscriptions";
+import AdminVoiceLibrary from "./pages/Admin/Audio/AdminVoiceLibrary";
+import AdminUsersGuests from "./pages/Admin/Audio/AdminUsersGuests";
+import AdminEventLog from "./pages/Admin/Audio/AdminEventLog";
+import AdminErrors from "./pages/Admin/Audio/AdminErrors";
+
+import AdminVideoOverview from "./pages/Admin/Video/AdminVideoOverview";
+import AdminGeneratedVideos from "./pages/Admin/Video/AdminGeneratedVideos";
+import AdminVideoJobs from "./pages/Admin/Video/AdminVideoJobs";
+import AdminVideoUsers from "./pages/Admin/Video/AdminVideoUsers";
+import AdminVideoEventLog from "./pages/Admin/Video/AdminVideoEventLog";
+import AdminVideoErrors from "./pages/Admin/Video/AdminVideoErrors";
 
 import "./App.css";
 
@@ -44,6 +63,7 @@ function MainLayout() {
   const [collapsed, setCollapsed] = useState(() => {
     return localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === "1";
   });
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   useEffect(() => {
     localStorage.setItem(SIDEBAR_COLLAPSED_KEY, collapsed ? "1" : "0");
@@ -54,10 +74,12 @@ function MainLayout() {
       <Sidebar
         collapsed={collapsed}
         onToggleCollapsed={() => setCollapsed((value) => !value)}
+        mobileOpen={mobileMenuOpen}
+        onMobileClose={() => setMobileMenuOpen(false)}
       />
 
       <div className="main-area">
-        <Navbar />
+        <Navbar onMobileMenuToggle={() => setMobileMenuOpen((open) => !open)} />
 
         <main className="main-content">
           <Outlet />
@@ -71,6 +93,7 @@ function GuestStudioLayout() {
   const [collapsed, setCollapsed] = useState(() => {
     return localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === "1";
   });
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   useEffect(() => {
     localStorage.setItem(SIDEBAR_COLLAPSED_KEY, collapsed ? "1" : "0");
@@ -82,11 +105,21 @@ function GuestStudioLayout() {
         guestMode
         collapsed={collapsed}
         onToggleCollapsed={() => setCollapsed((value) => !value)}
+        mobileOpen={mobileMenuOpen}
+        onMobileClose={() => setMobileMenuOpen(false)}
       />
 
       <div className="main-area">
         <header className="app-navbar">
           <div className="navbar-actions">
+            <button 
+              type="button"
+              className="mobile-menu-toggle" 
+              onClick={() => setMobileMenuOpen((open) => !open)}
+              aria-label="Toggle menu"
+            >
+              <Menu size={20} />
+            </button>
             <Link to="/" className="navbar-title-link">
               <Sparkles size={20} />
               <span className="navbar-title">AI Creative Studio</span>
@@ -122,11 +155,25 @@ function StudioLayout() {
   return <GuestStudioLayout />;
 }
 
+/**
+ * Track route changes for analytics
+ */
+function RouteTracker() {
+  const location = useLocation();
+  
+  useEffect(() => {
+    trackPageView(location.pathname);
+  }, [location]);
+  
+  return null;
+}
+
 function App() {
   return (
     <BrowserRouter>
       <ThemeProvider>
         <AuthProvider>
+          <RouteTracker />
           <Routes>
             <Route path="/" element={<Home />} />
             <Route path="/login" element={<Login />} />
@@ -149,6 +196,21 @@ function App() {
                   <Route path="/admin/ai-access" element={<AIAccessSettings />} />
                   <Route path="/admin/images" element={<ImageHistory />} />
                   <Route path="/admin/references" element={<ReferenceList />} />
+                  <Route path="/admin/analytics" element={<AnalyticsReports />} />
+                  <Route path="/admin/audio-activity" element={<AudioActivity />} />
+                  <Route path="/admin/audio/overview" element={<AdminAudioOverview />} />
+                  <Route path="/admin/audio/generated" element={<AdminGeneratedAudio />} />
+                  <Route path="/admin/audio/transcriptions" element={<AdminTranscriptions />} />
+                  <Route path="/admin/audio/voices" element={<AdminVoiceLibrary />} />
+                  <Route path="/admin/audio/users-guests" element={<AdminUsersGuests />} />
+                  <Route path="/admin/audio/events" element={<AdminEventLog />} />
+                  <Route path="/admin/audio/errors" element={<AdminErrors />} />
+                  <Route path="/admin/video/overview" element={<AdminVideoOverview />} />
+                  <Route path="/admin/video/generated" element={<AdminGeneratedVideos />} />
+                  <Route path="/admin/video/jobs" element={<AdminVideoJobs />} />
+                  <Route path="/admin/video/users" element={<AdminVideoUsers />} />
+                  <Route path="/admin/video/events" element={<AdminVideoEventLog />} />
+                  <Route path="/admin/video/errors" element={<AdminVideoErrors />} />
                 </Route>
               </Route>
             </Route>

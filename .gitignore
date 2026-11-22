@@ -45,3 +45,14 @@ Thumbs.db
 backend/generated_images/
 backend/models/
 backend/reference_images/
+backend/generated_audio/
+!backend/generated_audio/.gitkeep
+
+# Generated videos
+backend/generated_videos/**
+!backend/generated_videos/.gitkeep
+!backend/generated_videos/**/.gitkeep
+backend/video_worker/ltx_outputs/
+backend/video_worker/.venv/
+.venv/
+backend/.venv/

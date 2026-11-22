@@ -16,6 +16,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Lock,
+  BarChart3,
   type LucideIcon,
 } from "lucide-react";
 
@@ -29,6 +30,8 @@ interface SidebarProps {
   collapsed?: boolean;
   onToggleCollapsed?: () => void;
   guestMode?: boolean;
+  mobileOpen?: boolean;
+  onMobileClose?: () => void;
 }
 
 interface MenuItem {
@@ -64,6 +67,8 @@ export default function Sidebar({
   collapsed = false,
   onToggleCollapsed,
   guestMode = false,
+  mobileOpen = false,
+  onMobileClose,
 }: SidebarProps) {
   const { hasAccess, isAdmin, user } = useAuth();
   const location = useLocation();
@@ -72,10 +77,14 @@ export default function Sidebar({
   const [favorites, setFavorites] = useState<string[]>(() => readIdList(FAV_KEY));
   const [pins, setPins] = useState<string[]>(() => readIdList(PIN_KEY));
   const [photoOpen, setPhotoOpen] = useState(true);
+  const [audioAdminOpen, setAudioAdminOpen] = useState(true);
+  const [videoAdminOpen, setVideoAdminOpen] = useState(true);
 
   const isLoggedIn = Boolean(user);
   const activeTool = (searchParams.get("tool") || "text_to_image") as StudioToolId;
   const onPhotoStudio = location.pathname.startsWith("/studios/image");
+  const onAudioAdmin = location.pathname.startsWith("/admin/audio");
+  const onVideoAdmin = location.pathname.startsWith("/admin/video");
 
   useEffect(() => {
     writeIdList(FAV_KEY, favorites);
@@ -127,6 +136,27 @@ export default function Sidebar({
         visible: !guestMode && isAdmin,
       },
       {
+        id: "analytics",
+        to: "/admin/analytics",
+        label: "Analytics Reports",
+        icon: BarChart3,
+        visible: !guestMode && isAdmin,
+      },
+      {
+        id: "audio-admin",
+        to: "/admin/audio/overview",
+        label: "Audio",
+        icon: AudioLines,
+        visible: !guestMode && isAdmin,
+      },
+      {
+        id: "video-admin",
+        to: "/admin/video/overview",
+        label: "Video",
+        icon: Video,
+        visible: !guestMode && isAdmin,
+      },
+      {
         id: "photo",
         to: toolPath("text_to_image"),
         label: "Photo Studio",
@@ -138,7 +168,7 @@ export default function Sidebar({
         to: "/studios/audio",
         label: "Audio Studio",
         icon: AudioLines,
-        visible: !guestMode && hasAccess("audio"),
+        visible: guestMode || hasAccess("audio"),
       },
       {
         id: "video",
@@ -159,6 +189,29 @@ export default function Sidebar({
 
   const photoTools = CREATE_TOOLS.filter((tool) =>
     tool.label.toLowerCase().includes(query.trim().toLowerCase())
+  );
+
+  const audioAdminPages = [
+    { id: "overview", label: "Audio Overview", to: "/admin/audio/overview" },
+    { id: "generated", label: "Generated Audio (TTS)", to: "/admin/audio/generated" },
+    { id: "transcriptions", label: "Transcriptions (STT)", to: "/admin/audio/transcriptions" },
+    { id: "voices", label: "Voice Library", to: "/admin/audio/voices" },
+    { id: "users-guests", label: "Users & Guests", to: "/admin/audio/users-guests" },
+    { id: "events", label: "Event Log", to: "/admin/audio/events" },
+    { id: "errors", label: "Failed / Errors", to: "/admin/audio/errors" },
+  ].filter((page) =>
+    page.label.toLowerCase().includes(query.trim().toLowerCase())
+  );
+
+  const videoAdminPages = [
+    { id: "overview", label: "Video Overview", to: "/admin/video/overview" },
+    { id: "generated", label: "Generated Videos", to: "/admin/video/generated" },
+    { id: "jobs", label: "Jobs Queue", to: "/admin/video/jobs" },
+    { id: "users", label: "Users", to: "/admin/video/users" },
+    { id: "events", label: "Event Log", to: "/admin/video/events" },
+    { id: "errors", label: "Failed / Errors", to: "/admin/video/errors" },
+  ].filter((page) =>
+    page.label.toLowerCase().includes(query.trim().toLowerCase())
   );
 
   const pinnedItems = filtered.filter((item) => pins.includes(item.id));
@@ -210,10 +263,68 @@ export default function Sidebar({
               className={`sidebar-sublink${isActive ? " active" : ""}${
                 locked ? " is-locked" : ""
               }`}
+              onClick={handleLinkClick}
             >
               <span className="sidebar-sublink-label">{tool.label}</span>
               {tool.badge && <em className="sidebar-badge">{tool.badge}</em>}
               {locked && <Lock size={12} />}
+            </Link>
+          );
+        })}
+      </div>
+    );
+  }
+
+  function renderAudioAdminPages() {
+    if (!audioAdminOpen && !onAudioAdmin) return null;
+    if (collapsed) return null;
+
+    return (
+      <div className="sidebar-subnav" aria-label="Audio Admin pages">
+        {!query.trim() && (
+          <div className="sidebar-group-title">Audio Management</div>
+        )}
+        {audioAdminPages.map((page) => {
+          const isActive = location.pathname === page.to || 
+                          (page.id === "overview" && location.pathname === "/admin/audio-activity");
+          return (
+            <Link
+              key={page.id}
+              to={page.to}
+              title={page.label}
+              aria-current={isActive ? "page" : undefined}
+              className={`sidebar-sublink${isActive ? " active" : ""}`}
+              onClick={handleLinkClick}
+            >
+              <span className="sidebar-sublink-label">{page.label}</span>
+            </Link>
+          );
+        })}
+      </div>
+    );
+  }
+
+  function renderVideoAdminPages() {
+    if (!videoAdminOpen && !onVideoAdmin) return null;
+    if (collapsed) return null;
+
+    return (
+      <div className="sidebar-subnav" aria-label="Video Admin pages">
+        {!query.trim() && (
+          <div className="sidebar-group-title">Video Management</div>
+        )}
+        {videoAdminPages.map((page) => {
+          const isActive = location.pathname === page.to;
+          return (
+            <Link
+              key={page.id}
+              to={page.to}
+              title={page.label}
+              aria-current={isActive ? "page" : undefined}
+              className={`sidebar-sublink${isActive ? " active" : ""}`}
+              onClick={handleLinkClick}
+            >
+              <span className="sidebar-sublink-label">{page.label}</span>
             </Link>
           );
         })}
@@ -233,6 +344,8 @@ export default function Sidebar({
             const isFav = favorites.includes(item.id);
             const isPinned = pins.includes(item.id);
             const isPhoto = item.id === "photo";
+            const isAudioAdmin = item.id === "audio-admin";
+            const isVideoAdmin = item.id === "video-admin";
 
             return (
               <div className="sidebar-item-stack" key={item.id}>
@@ -246,13 +359,24 @@ export default function Sidebar({
                           ? onPhotoStudio
                             ? " active"
                             : ""
-                          : isActive
-                            ? " active"
-                            : ""
+                          : isAudioAdmin
+                            ? onAudioAdmin
+                              ? " active"
+                              : ""
+                            : isVideoAdmin
+                              ? onVideoAdmin
+                                ? " active"
+                                : ""
+                              : isActive
+                                ? " active"
+                                : ""
                       }`
                     }
                     onClick={() => {
                       if (isPhoto) setPhotoOpen(true);
+                      if (isAudioAdmin) setAudioAdminOpen(true);
+                      if (isVideoAdmin) setVideoAdminOpen(true);
+                      handleLinkClick();
                     }}
                   >
                     <Icon size={19} />
@@ -281,6 +405,8 @@ export default function Sidebar({
                   )}
                 </div>
                 {isPhoto && renderPhotoTools()}
+                {isAudioAdmin && renderAudioAdminPages()}
+                {isVideoAdmin && renderVideoAdminPages()}
               </div>
             );
           })}
@@ -294,8 +420,25 @@ export default function Sidebar({
     photoTools.length > 0 &&
     !filtered.some((item) => item.id === "photo");
 
+  // Close mobile menu when navigating
+  const handleLinkClick = () => {
+    if (onMobileClose) {
+      onMobileClose();
+    }
+  };
+
   return (
-    <aside className={`sidebar${collapsed ? " is-collapsed" : ""}`}>
+    <>
+      {/* Mobile overlay */}
+      {mobileOpen && (
+        <div 
+          className="mobile-menu-overlay is-open" 
+          onClick={onMobileClose}
+          aria-hidden="true"
+        />
+      )}
+      
+      <aside className={`sidebar${collapsed ? " is-collapsed" : ""}${mobileOpen ? " is-open" : ""}`}>
       <div className="sidebar-top">
         <div className="sidebar-brand">
           <Sparkles size={22} />
@@ -348,6 +491,7 @@ export default function Sidebar({
           </>
         )}
       </nav>
-    </aside>
+      </aside>
+    </>
   );
 }

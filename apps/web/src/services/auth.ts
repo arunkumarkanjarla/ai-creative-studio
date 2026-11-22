@@ -1,5 +1,12 @@
 
-import { apiRequest } from "./api";
+import {
+  apiRequest,
+  apiFetch,
+  clearAuthTokens,
+  getAccessToken,
+  getRefreshToken,
+  ensureFocusRefreshListener,
+} from "./api";
 
 export interface User {
   id: number;
@@ -16,6 +23,8 @@ export interface User {
 export interface LoginResponse {
   access_token: string;
   token_type: string;
+  refresh_token?: string;
+  expires_in?: number;
 }
 
 export async function login(
@@ -27,16 +36,14 @@ export async function login(
   formData.append("username", email);
   formData.append("password", password);
 
-  const response = await fetch(
-    "http://localhost:8000/api/v1/auth/login",
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded",
-      },
-      body: formData,
-    }
-  );
+  const response = await apiFetch("/auth/login", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: formData,
+    skipAuthRefresh: true,
+  });
 
   if (!response.ok) {
     throw new Error("Invalid email or password");
@@ -49,6 +56,28 @@ export async function getCurrentUser(): Promise<User> {
   return apiRequest<User>("/auth/me");
 }
 
-export function logout(): void {
-  localStorage.removeItem("access_token");
+export async function logout(allDevices = false): Promise<void> {
+  const token = getAccessToken();
+  const refreshToken = getRefreshToken();
+
+  if (token || refreshToken) {
+    try {
+      await apiFetch("/auth/logout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          refresh_token: refreshToken,
+          all_devices: allDevices,
+        }),
+        skipAuthRefresh: true,
+      });
+    } catch (error) {
+      console.error("Logout API call failed:", error);
+    }
+  }
+
+  clearAuthTokens();
 }
+
+// Attach proactive / focus refresh for long-lived sessions
+ensureFocusRefreshListener();
