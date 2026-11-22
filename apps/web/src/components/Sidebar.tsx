@@ -139,6 +139,13 @@ export default function Sidebar({
         visible: !guestMode && isAdmin,
       },
       {
+        id: "audio-activity",
+        to: "/admin/audio-activity",
+        label: "Audio Activity",
+        icon: AudioLines,
+        visible: !guestMode && isAdmin,
+      },
+      {
         id: "photo",
         to: toolPath("text_to_image"),
         label: "Photo Studio",

@@ -38,6 +38,7 @@ import AIAccessSettings from "./pages/Admin/AIAccessSettings";
 import ImageHistory from "./pages/Admin/ImageHistory";
 import ReferenceList from "./pages/Admin/ReferenceList";
 import AnalyticsReports from "./pages/AnalyticsReports";
+import AudioActivity from "./pages/Admin/AudioActivity";
 
 import "./App.css";
 
@@ -181,6 +182,7 @@ function App() {
                   <Route path="/admin/images" element={<ImageHistory />} />
                   <Route path="/admin/references" element={<ReferenceList />} />
                   <Route path="/admin/analytics" element={<AnalyticsReports />} />
+                  <Route path="/admin/audio-activity" element={<AudioActivity />} />
                 </Route>
               </Route>
             </Route>
