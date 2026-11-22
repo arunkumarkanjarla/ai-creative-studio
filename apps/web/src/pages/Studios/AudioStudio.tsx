@@ -117,6 +117,15 @@ export default function AudioStudio() {
   const handleGenerateTTS = async () => {
     if (!ttsText.trim() || !selectedVoice) return;
     
+    // Check if trying to use custom voice without being logged in
+    const token = localStorage.getItem("access_token");
+    if (!token && selectedVoice.is_custom) {
+      if (confirm("Custom voices are only available to signed-in users. Would you like to sign in now?")) {
+        window.location.href = "/login";
+      }
+      return;
+    }
+    
     setGenerating(true);
     setGeneratedAudio(null);
     
@@ -186,7 +195,7 @@ export default function AudioStudio() {
     }
   }, [historyType]);
 
-  // Fetch authenticated media and return blob URL
+  // Fetch media (authenticated or guest) and return blob URL
   const fetchAuthenticatedMedia = async (url: string): Promise<string> => {
     // Check cache first
     if (blobUrlCache.current.has(url)) {
@@ -195,11 +204,20 @@ export default function AudioStudio() {
 
     try {
       const token = localStorage.getItem("access_token");
+      const visitorId = localStorage.getItem("visitor_id");
       const apiUrl = "http://localhost:8000"; // Backend URL
+      
+      const headers: Record<string, string> = {
+        "X-Visitor-Id": visitorId || "",
+      };
+      
+      // Only add Authorization if token exists
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+      }
+      
       const response = await fetch(`${apiUrl}${url}`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
+        headers,
       });
 
       if (!response.ok) {
@@ -214,12 +232,52 @@ export default function AudioStudio() {
       
       return blobUrl;
     } catch (error) {
-      console.error("Failed to fetch authenticated media:", error);
+      console.error("Failed to fetch media:", error);
       throw error;
     }
   };
 
-  const playAudio = async (url: string) => {
+  // Log audio events to backend
+  const logAudioEvent = async (
+    action: string,
+    metadata?: {
+      generation_id?: number;
+      transcription_id?: number;
+      voice_id?: string;
+      voice_name?: string;
+      language?: string;
+      audio_duration?: number;
+      file_size?: number;
+    }
+  ) => {
+    try {
+      const formData = new FormData();
+      formData.append("action", action);
+      if (metadata?.generation_id) formData.append("generation_id", metadata.generation_id.toString());
+      if (metadata?.transcription_id) formData.append("transcription_id", metadata.transcription_id.toString());
+      if (metadata?.voice_id) formData.append("voice_id", metadata.voice_id);
+      if (metadata?.voice_name) formData.append("voice_name", metadata.voice_name);
+      if (metadata?.language) formData.append("language", metadata.language);
+      if (metadata?.audio_duration) formData.append("audio_duration", metadata.audio_duration.toString());
+      if (metadata?.file_size) formData.append("file_size", metadata.file_size.toString());
+      
+      await apiRequest("/audio/events", {
+        method: "POST",
+        body: formData
+      });
+    } catch (error) {
+      // Don't fail the main operation if logging fails
+      console.error("Failed to log audio event:", error);
+    }
+  };
+
+  const playAudio = async (url: string, metadata?: { 
+    generation_id?: number;
+    voice_id?: string;
+    voice_name?: string;
+    duration?: number;
+    file_size?: number;
+  }) => {
     if (audioRef.current) {
       if (currentAudioUrl === url && isPlaying) {
         audioRef.current.pause();
@@ -231,6 +289,17 @@ export default function AudioStudio() {
           await audioRef.current.play();
           setCurrentAudioUrl(url);
           setIsPlaying(true);
+          
+          // Log play event
+          if (metadata?.generation_id) {
+            await logAudioEvent("play", {
+              generation_id: metadata.generation_id,
+              voice_id: metadata.voice_id,
+              voice_name: metadata.voice_name,
+              audio_duration: metadata.duration,
+              file_size: metadata.file_size
+            });
+          }
         } catch (error) {
           console.error("Failed to play audio:", error);
           alert("Failed to play audio. Please try again.");
@@ -239,7 +308,15 @@ export default function AudioStudio() {
     }
   };
 
-  const downloadMedia = async (url: string, filename: string) => {
+  const downloadMedia = async (url: string, filename: string, metadata?: {
+    generation_id?: number;
+    transcription_id?: number;
+    voice_id?: string;
+    voice_name?: string;
+    language?: string;
+    duration?: number;
+    file_size?: number;
+  }) => {
     try {
       const blobUrl = await fetchAuthenticatedMedia(url);
       const a = document.createElement("a");
@@ -248,6 +325,9 @@ export default function AudioStudio() {
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
+      
+      // Log download event
+      await logAudioEvent("download", metadata);
     } catch (error) {
       console.error("Failed to download media:", error);
       alert("Failed to download file. Please try again.");
@@ -310,11 +390,11 @@ export default function AudioStudio() {
             
             <div className="prompt-with-voice">
               <textarea
-                placeholder="Enter text to convert to speech (up to 5000 characters)..."
+                placeholder={`Enter text to convert to speech (up to ${localStorage.getItem("access_token") ? "5000" : "1000"} characters)...`}
                 rows={6}
                 value={ttsText}
                 onChange={(e) => setTtsText(e.target.value)}
-                maxLength={5000}
+                maxLength={localStorage.getItem("access_token") ? 5000 : 1000}
               />
               <VoiceInput
                 onTranscript={(text) => {
@@ -325,7 +405,8 @@ export default function AudioStudio() {
             </div>
             
             <div style={{ fontSize: "12px", color: "var(--text-muted)", marginTop: "8px" }}>
-              {ttsText.length} / 5000 characters
+              {ttsText.length} / {localStorage.getItem("access_token") ? "5000" : "1000"} characters
+              {!localStorage.getItem("access_token") && " (Sign in for 5000 characters)"}
             </div>
 
             <div className="audio-controls">
@@ -492,13 +573,21 @@ export default function AudioStudio() {
               <div style={{ display: "flex", gap: "12px", marginTop: "16px" }}>
                 <button 
                   className="secondary-button"
-                  onClick={() => downloadMedia(transcriptResult.txt_url, "transcript.txt")}
+                  onClick={() => downloadMedia(transcriptResult.txt_url, "transcript.txt", {
+                    transcription_id: transcriptResult.id,
+                    language: transcriptResult.language,
+                    duration: transcriptResult.duration
+                  })}
                 >
                   <FileText size={16} /> Download TXT
                 </button>
                 <button 
                   className="secondary-button"
-                  onClick={() => downloadMedia(transcriptResult.srt_url, "transcript.srt")}
+                  onClick={() => downloadMedia(transcriptResult.srt_url, "transcript.srt", {
+                    transcription_id: transcriptResult.id,
+                    language: transcriptResult.language,
+                    duration: transcriptResult.duration
+                  })}
                 >
                   <FileText size={16} /> Download SRT
                 </button>
@@ -541,14 +630,24 @@ export default function AudioStudio() {
                     <div className="history-actions">
                       <button 
                         className="icon-button"
-                        onClick={() => playAudio(item.download_url)}
+                        onClick={() => playAudio(item.download_url, {
+                          generation_id: item.id,
+                          voice_name: item.voice_name,
+                          duration: item.duration,
+                          file_size: item.file_size
+                        })}
                         title="Play"
                       >
                         {currentAudioUrl === item.download_url && isPlaying ? <Pause size={18} /> : <Play size={18} />}
                       </button>
                       <button 
                         className="icon-button"
-                        onClick={() => downloadMedia(item.download_url, `tts_${item.id}.mp3`)}
+                        onClick={() => downloadMedia(item.download_url, `tts_${item.id}.mp3`, {
+                          generation_id: item.id,
+                          voice_name: item.voice_name,
+                          duration: item.duration,
+                          file_size: item.file_size
+                        })}
                         title="Download"
                       >
                         <Download size={18} />
@@ -581,7 +680,11 @@ export default function AudioStudio() {
                     <div className="history-actions">
                       <button 
                         className="icon-button"
-                        onClick={() => downloadMedia(item.txt_url, `transcript_${item.id}.txt`)}
+                        onClick={() => downloadMedia(item.txt_url, `transcript_${item.id}.txt`, {
+                          transcription_id: item.id,
+                          language: item.language,
+                          duration: item.duration
+                        })}
                         title="Download TXT"
                       >
                         <FileText size={18} />

@@ -150,7 +150,7 @@ export default function Sidebar({
         to: "/studios/audio",
         label: "Audio Studio",
         icon: AudioLines,
-        visible: !guestMode && hasAccess("audio"),
+        visible: guestMode || hasAccess("audio"),
       },
       {
         id: "video",
