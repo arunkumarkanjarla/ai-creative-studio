@@ -98,14 +98,18 @@ def init_builtin_voices(db: Session):
 
 @router.get("/voices")
 def list_voices(
+    request: Request,
     gender: Optional[str] = Query(None),
     age_group: Optional[str] = Query(None),
     language: Optional[str] = Query(None),
     include_custom: bool = Query(True),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: Optional[User] = Depends(get_optional_user)
 ):
-    """List available voices with optional filters."""
+    """List available voices with optional filters. Works for guests and authenticated users."""
+    import time
+    start_time = time.time()
+    
     # Initialize built-in voices if needed
     init_builtin_voices(db)
     
@@ -119,8 +123,8 @@ def list_voices(
     if language:
         query = query.filter(VoiceProfile.language == language)
     
-    # Include built-in voices and user's custom voices
-    if include_custom:
+    # Include built-in voices and user's custom voices (if authenticated)
+    if include_custom and current_user:
         query = query.filter(
             (VoiceProfile.is_custom == False) | 
             (VoiceProfile.user_id == current_user.id)
@@ -129,6 +133,17 @@ def list_voices(
         query = query.filter(VoiceProfile.is_custom == False)
     
     voices = query.all()
+    
+    # Log the event
+    duration_ms = int((time.time() - start_time) * 1000)
+    log_audio_event(
+        db=db,
+        request=request,
+        action="list_voices",
+        user_id=current_user.id if current_user else None,
+        status="success",
+        processing_time_ms=duration_ms
+    )
     
     return {
         "voices": [
@@ -208,15 +223,62 @@ async def generate_tts(
     volume: float = Form(1.0),
     output_format: str = Form("mp3"),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: Optional[User] = Depends(get_optional_user)
 ):
-    """Generate text-to-speech audio."""
+    """Generate text-to-speech audio. Works for guests and authenticated users."""
     import time
     start_time = time.time()
     
-    # Validate text length
-    if len(text) > 5000:
-        raise HTTPException(status_code=400, detail="Text too long (max 5000 characters)")
+    visitor_id = request.headers.get("X-Visitor-Id")
+    forwarded_for = request.headers.get("X-Forwarded-For")
+    ip = get_client_ip(request, forwarded_for)
+    
+    # For guests, check rate limits
+    if not current_user:
+        if not visitor_id:
+            log_audio_event(
+                db=db,
+                request=request,
+                action="generate",
+                status="failed",
+                error_message="Missing X-Visitor-Id header",
+                processing_time_ms=int((time.time() - start_time) * 1000)
+            )
+            raise HTTPException(status_code=400, detail="Visitor ID required for guest access")
+        
+        if check_rate_limit(db, visitor_id, ip, limit_per_hour=50):
+            log_audio_event(
+                db=db,
+                request=request,
+                action="generate",
+                visitor_id=visitor_id,
+                status="rate_limited",
+                error_message="Rate limit exceeded (50 per hour for guests)",
+                processing_time_ms=int((time.time() - start_time) * 1000)
+            )
+            raise HTTPException(
+                status_code=429, 
+                detail="Rate limit exceeded. Please sign in for unlimited access or try again later."
+            )
+    
+    # Validate text length (stricter for guests)
+    max_length = 5000 if current_user else 1000
+    if len(text) > max_length:
+        log_audio_event(
+            db=db,
+            request=request,
+            action="generate",
+            user_id=current_user.id if current_user else None,
+            visitor_id=visitor_id if not current_user else None,
+            text_length=len(text),
+            status="failed",
+            error_message=f"Text too long (max {max_length} characters)",
+            processing_time_ms=int((time.time() - start_time) * 1000)
+        )
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Text too long (max {max_length} characters for {'users' if current_user else 'guests'})"
+        )
     
     # Get voice info
     voice_profile = db.query(VoiceProfile).filter(
@@ -224,11 +286,43 @@ async def generate_tts(
     ).first()
     
     if not voice_profile:
+        log_audio_event(
+            db=db,
+            request=request,
+            action="generate",
+            user_id=current_user.id if current_user else None,
+            visitor_id=visitor_id if not current_user else None,
+            voice_id=voice_id,
+            text_length=len(text),
+            status="failed",
+            error_message="Voice not found",
+            processing_time_ms=int((time.time() - start_time) * 1000)
+        )
         raise HTTPException(status_code=404, detail="Voice not found")
+    
+    # Check if voice is custom and user is not authenticated
+    if voice_profile.is_custom and not current_user:
+        log_audio_event(
+            db=db,
+            request=request,
+            action="generate",
+            visitor_id=visitor_id,
+            voice_id=voice_id,
+            voice_name=voice_profile.name,
+            text_length=len(text),
+            status="failed",
+            error_message="Custom voices require authentication",
+            processing_time_ms=int((time.time() - start_time) * 1000)
+        )
+        raise HTTPException(
+            status_code=401, 
+            detail="Custom voices are only available to signed-in users. Please sign in to use custom voices."
+        )
     
     # Create generation record
     generation = TTSGeneration(
-        user_id=current_user.id,
+        user_id=current_user.id if current_user else None,
+        visitor_id=visitor_id if not current_user else None,
         voice_profile_id=voice_profile.id,
         input_text=text,
         voice_id=voice_id,
@@ -299,20 +393,36 @@ async def generate_tts(
         
         # Track usage event
         duration_ms = int((time.time() - start_time) * 1000)
-        visitor_id = request.headers.get("X-Visitor-Id")
-        forwarded_for = request.headers.get("X-Forwarded-For")
-        ip = get_client_ip(request, forwarded_for)
         
         track_usage_event(
             db=db,
-            visitor_id=visitor_id,
-            user_id=current_user.id,
+            visitor_id=visitor_id if not current_user else None,
+            user_id=current_user.id if current_user else None,
             ip=ip,
             studio="audio",
             action="generate",
             tool="text_to_speech",
             success=True,
             duration_ms=duration_ms
+        )
+        
+        # Log detailed audio event
+        log_audio_event(
+            db=db,
+            request=request,
+            action="generate",
+            user_id=current_user.id if current_user else None,
+            visitor_id=visitor_id if not current_user else None,
+            voice_id=voice_id,
+            voice_name=voice_profile.name,
+            language=voice_profile.language,
+            text_length=len(text),
+            input_text=text,
+            audio_duration=estimated_duration,
+            file_size=file_size,
+            processing_time_ms=duration_ms,
+            status="success",
+            generation_id=generation.id
         )
         
         return {
@@ -331,14 +441,11 @@ async def generate_tts(
         
         # Track failed event
         duration_ms = int((time.time() - start_time) * 1000)
-        visitor_id = request.headers.get("X-Visitor-Id")
-        forwarded_for = request.headers.get("X-Forwarded-For")
-        ip = get_client_ip(request, forwarded_for)
         
         track_usage_event(
             db=db,
-            visitor_id=visitor_id,
-            user_id=current_user.id,
+            visitor_id=visitor_id if not current_user else None,
+            user_id=current_user.id if current_user else None,
             ip=ip,
             studio="audio",
             action="generate",
@@ -347,27 +454,86 @@ async def generate_tts(
             duration_ms=duration_ms
         )
         
+        # Log detailed audio event
+        log_audio_event(
+            db=db,
+            request=request,
+            action="generate",
+            user_id=current_user.id if current_user else None,
+            visitor_id=visitor_id if not current_user else None,
+            voice_id=voice_id,
+            voice_name=voice_profile.name if voice_profile else None,
+            language=voice_profile.language if voice_profile else None,
+            text_length=len(text),
+            input_text=text,
+            processing_time_ms=duration_ms,
+            status="failed",
+            error_message=str(e),
+            generation_id=generation.id
+        )
+        
         raise HTTPException(status_code=500, detail=f"TTS generation failed: {str(e)}")
 
 
 @router.get("/download/{generation_id}")
 def download_audio(
+    request: Request,
     generation_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: Optional[User] = Depends(get_optional_user)
 ):
-    """Download generated audio file."""
-    generation = db.query(TTSGeneration).filter(
-        TTSGeneration.id == generation_id,
-        TTSGeneration.user_id == current_user.id
-    ).first()
+    """Download generated audio file. Works for guests and authenticated users."""
+    import time
+    start_time = time.time()
+    
+    visitor_id = request.headers.get("X-Visitor-Id")
+    
+    # Build query based on authentication
+    query = db.query(TTSGeneration).filter(TTSGeneration.id == generation_id)
+    
+    if current_user:
+        query = query.filter(TTSGeneration.user_id == current_user.id)
+    else:
+        if not visitor_id:
+            raise HTTPException(status_code=400, detail="Visitor ID required for guest access")
+        query = query.filter(TTSGeneration.visitor_id == visitor_id)
+    
+    generation = query.first()
     
     if not generation or not generation.file_path:
+        # Return 404 for cross-visitor access attempts (security through obscurity)
         raise HTTPException(status_code=404, detail="Audio not found")
     
     file_path = Path(generation.file_path)
     if not file_path.exists():
+        log_audio_event(
+            db=db,
+            request=request,
+            action="download",
+            user_id=current_user.id if current_user else None,
+            visitor_id=visitor_id if not current_user else None,
+            generation_id=generation_id,
+            status="failed",
+            error_message="File not found on disk",
+            processing_time_ms=int((time.time() - start_time) * 1000)
+        )
         raise HTTPException(status_code=404, detail="Audio file not found on disk")
+    
+    # Log successful download
+    log_audio_event(
+        db=db,
+        request=request,
+        action="download",
+        user_id=current_user.id if current_user else None,
+        visitor_id=visitor_id if not current_user else None,
+        voice_id=generation.voice_id,
+        voice_name=generation.voice_name,
+        file_size=generation.file_size_bytes,
+        audio_duration=generation.duration_seconds,
+        generation_id=generation.id,
+        status="success",
+        processing_time_ms=int((time.time() - start_time) * 1000)
+    )
     
     return FileResponse(
         path=str(file_path),
@@ -378,19 +544,35 @@ def download_audio(
 
 @router.get("/history/tts")
 def get_tts_history(
+    request: Request,
     limit: int = Query(20, le=100),
     offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: Optional[User] = Depends(get_optional_user)
 ):
-    """Get user's TTS generation history."""
-    total = db.query(TTSGeneration).filter(
-        TTSGeneration.user_id == current_user.id
-    ).count()
+    """Get TTS generation history. Works for guests and authenticated users."""
+    visitor_id = request.headers.get("X-Visitor-Id")
     
-    generations = db.query(TTSGeneration).filter(
-        TTSGeneration.user_id == current_user.id
-    ).order_by(desc(TTSGeneration.created_at)).offset(offset).limit(limit).all()
+    # Build query based on authentication
+    if current_user:
+        query = db.query(TTSGeneration).filter(TTSGeneration.user_id == current_user.id)
+    else:
+        if not visitor_id:
+            raise HTTPException(status_code=400, detail="Visitor ID required for guest access")
+        query = db.query(TTSGeneration).filter(TTSGeneration.visitor_id == visitor_id)
+    
+    total = query.count()
+    generations = query.order_by(desc(TTSGeneration.created_at)).offset(offset).limit(limit).all()
+    
+    # Log the access
+    log_audio_event(
+        db=db,
+        request=request,
+        action="list_history_tts",
+        user_id=current_user.id if current_user else None,
+        visitor_id=visitor_id if not current_user else None,
+        status="success"
+    )
     
     return {
         "total": total,
@@ -413,17 +595,28 @@ def get_tts_history(
 
 @router.delete("/history/tts/{generation_id}")
 def delete_tts_generation(
+    request: Request,
     generation_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: Optional[User] = Depends(get_optional_user)
 ):
-    """Delete a TTS generation."""
-    generation = db.query(TTSGeneration).filter(
-        TTSGeneration.id == generation_id,
-        TTSGeneration.user_id == current_user.id
-    ).first()
+    """Delete a TTS generation. Works for guests and authenticated users."""
+    visitor_id = request.headers.get("X-Visitor-Id")
+    
+    # Build query based on authentication
+    query = db.query(TTSGeneration).filter(TTSGeneration.id == generation_id)
+    
+    if current_user:
+        query = query.filter(TTSGeneration.user_id == current_user.id)
+    else:
+        if not visitor_id:
+            raise HTTPException(status_code=400, detail="Visitor ID required for guest access")
+        query = query.filter(TTSGeneration.visitor_id == visitor_id)
+    
+    generation = query.first()
     
     if not generation:
+        # Return 404 for cross-visitor access attempts
         raise HTTPException(status_code=404, detail="Generation not found")
     
     # Delete file if exists
@@ -431,6 +624,17 @@ def delete_tts_generation(
         file_path = Path(generation.file_path)
         if file_path.exists():
             file_path.unlink()
+    
+    # Log the deletion
+    log_audio_event(
+        db=db,
+        request=request,
+        action="delete_tts",
+        user_id=current_user.id if current_user else None,
+        visitor_id=visitor_id if not current_user else None,
+        generation_id=generation_id,
+        status="success"
+    )
     
     db.delete(generation)
     db.commit()
@@ -444,15 +648,68 @@ async def transcribe_audio(
     audio: UploadFile = File(...),
     language: Optional[str] = Form(None),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: Optional[User] = Depends(get_optional_user)
 ):
-    """Transcribe uploaded audio file using faster-whisper."""
+    """Transcribe uploaded audio file using faster-whisper. Works for guests and authenticated users."""
     import time
     start_time = time.time()
     
+    visitor_id = request.headers.get("X-Visitor-Id")
+    forwarded_for = request.headers.get("X-Forwarded-For")
+    ip = get_client_ip(request, forwarded_for)
+    
+    # For guests, check rate limits and file size
+    if not current_user:
+        if not visitor_id:
+            log_audio_event(
+                db=db,
+                request=request,
+                action="transcribe",
+                status="failed",
+                error_message="Missing X-Visitor-Id header",
+                processing_time_ms=int((time.time() - start_time) * 1000)
+            )
+            raise HTTPException(status_code=400, detail="Visitor ID required for guest access")
+        
+        if check_rate_limit(db, visitor_id, ip, limit_per_hour=50):
+            log_audio_event(
+                db=db,
+                request=request,
+                action="transcribe",
+                visitor_id=visitor_id,
+                status="rate_limited",
+                error_message="Rate limit exceeded (50 per hour for guests)",
+                processing_time_ms=int((time.time() - start_time) * 1000)
+            )
+            raise HTTPException(
+                status_code=429, 
+                detail="Rate limit exceeded. Please sign in for unlimited access or try again later."
+            )
+    
+    # Check file size (stricter for guests: 10MB vs 50MB)
+    max_size = 50 * 1024 * 1024 if current_user else 10 * 1024 * 1024
+    content = await audio.read()
+    if len(content) > max_size:
+        log_audio_event(
+            db=db,
+            request=request,
+            action="transcribe",
+            user_id=current_user.id if current_user else None,
+            visitor_id=visitor_id if not current_user else None,
+            file_size=len(content),
+            status="failed",
+            error_message=f"File too large (max {max_size // 1024 // 1024}MB)",
+            processing_time_ms=int((time.time() - start_time) * 1000)
+        )
+        raise HTTPException(
+            status_code=400,
+            detail=f"File too large (max {max_size // 1024 // 1024}MB for {'users' if current_user else 'guests'})"
+        )
+    
     # Create transcription record
     transcription = Transcription(
-        user_id=current_user.id,
+        user_id=current_user.id if current_user else None,
+        visitor_id=visitor_id if not current_user else None,
         source_type="upload",
         language=language,
         status="processing"
@@ -490,7 +747,7 @@ async def transcribe_audio(
         upload_filename = f"upload_{transcription.id}_{int(time.time())}.{original_ext}"
         upload_path = AUDIO_DIR / upload_filename
         
-        content = await audio.read()
+        # Content already read for size check
         with open(upload_path, "wb") as f:
             f.write(content)
         
@@ -588,20 +845,33 @@ async def transcribe_audio(
         
         # Track usage event
         duration_ms = int((time.time() - start_time) * 1000)
-        visitor_id = request.headers.get("X-Visitor-Id")
-        forwarded_for = request.headers.get("X-Forwarded-For")
-        ip = get_client_ip(request, forwarded_for)
         
         track_usage_event(
             db=db,
-            visitor_id=visitor_id,
-            user_id=current_user.id,
+            visitor_id=visitor_id if not current_user else None,
+            user_id=current_user.id if current_user else None,
             ip=ip,
             studio="audio",
             action="transcribe",
             tool="speech_to_text",
             success=True,
             duration_ms=duration_ms
+        )
+        
+        # Log detailed audio event
+        log_audio_event(
+            db=db,
+            request=request,
+            action="transcribe",
+            user_id=current_user.id if current_user else None,
+            visitor_id=visitor_id if not current_user else None,
+            language=transcription.language_detected,
+            text_length=len(full_text) if full_text else None,
+            audio_duration=transcription.duration_seconds,
+            file_size=len(content),
+            processing_time_ms=duration_ms,
+            status="success",
+            transcription_id=transcription.id
         )
         
         return {
@@ -625,20 +895,32 @@ async def transcribe_audio(
         
         # Track failed event
         duration_ms = int((time.time() - start_time) * 1000)
-        visitor_id = request.headers.get("X-Visitor-Id")
-        forwarded_for = request.headers.get("X-Forwarded-For")
-        ip = get_client_ip(request, forwarded_for)
         
         track_usage_event(
             db=db,
-            visitor_id=visitor_id,
-            user_id=current_user.id,
+            visitor_id=visitor_id if not current_user else None,
+            user_id=current_user.id if current_user else None,
             ip=ip,
             studio="audio",
             action="transcribe",
             tool="speech_to_text",
             success=False,
             duration_ms=duration_ms
+        )
+        
+        # Log detailed audio event
+        log_audio_event(
+            db=db,
+            request=request,
+            action="transcribe",
+            user_id=current_user.id if current_user else None,
+            visitor_id=visitor_id if not current_user else None,
+            language=language,
+            file_size=len(content) if 'content' in locals() else None,
+            processing_time_ms=duration_ms,
+            status="failed",
+            error_message=str(e),
+            transcription_id=transcription.id
         )
         
         raise HTTPException(status_code=500, detail=f"Transcription failed: {str(e)}")
@@ -655,18 +937,32 @@ def format_timestamp(seconds: float) -> str:
 
 @router.get("/download/transcript/{transcription_id}/{format}")
 def download_transcript(
+    request: Request,
     transcription_id: int,
     format: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: Optional[User] = Depends(get_optional_user)
 ):
-    """Download transcript in txt or srt format."""
-    transcription = db.query(Transcription).filter(
-        Transcription.id == transcription_id,
-        Transcription.user_id == current_user.id
-    ).first()
+    """Download transcript in txt or srt format. Works for guests and authenticated users."""
+    import time
+    start_time = time.time()
+    
+    visitor_id = request.headers.get("X-Visitor-Id")
+    
+    # Build query based on authentication
+    query = db.query(Transcription).filter(Transcription.id == transcription_id)
+    
+    if current_user:
+        query = query.filter(Transcription.user_id == current_user.id)
+    else:
+        if not visitor_id:
+            raise HTTPException(status_code=400, detail="Visitor ID required for guest access")
+        query = query.filter(Transcription.visitor_id == visitor_id)
+    
+    transcription = query.first()
     
     if not transcription:
+        # Return 404 for cross-visitor access attempts
         raise HTTPException(status_code=404, detail="Transcription not found")
     
     if format == "txt":
@@ -681,7 +977,31 @@ def download_transcript(
         raise HTTPException(status_code=400, detail="Format must be txt or srt")
     
     if not file_path or not Path(file_path).exists():
+        log_audio_event(
+            db=db,
+            request=request,
+            action=f"download_transcript_{format}",
+            user_id=current_user.id if current_user else None,
+            visitor_id=visitor_id if not current_user else None,
+            transcription_id=transcription_id,
+            status="failed",
+            error_message="File not found",
+            processing_time_ms=int((time.time() - start_time) * 1000)
+        )
         raise HTTPException(status_code=404, detail="Transcript file not found")
+    
+    # Log successful download
+    log_audio_event(
+        db=db,
+        request=request,
+        action=f"download_transcript_{format}",
+        user_id=current_user.id if current_user else None,
+        visitor_id=visitor_id if not current_user else None,
+        transcription_id=transcription_id,
+        language=transcription.language_detected,
+        status="success",
+        processing_time_ms=int((time.time() - start_time) * 1000)
+    )
     
     return FileResponse(
         path=file_path,
@@ -692,19 +1012,35 @@ def download_transcript(
 
 @router.get("/history/transcriptions")
 def get_transcription_history(
+    request: Request,
     limit: int = Query(20, le=100),
     offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: Optional[User] = Depends(get_optional_user)
 ):
-    """Get user's transcription history."""
-    total = db.query(Transcription).filter(
-        Transcription.user_id == current_user.id
-    ).count()
+    """Get transcription history. Works for guests and authenticated users."""
+    visitor_id = request.headers.get("X-Visitor-Id")
     
-    transcriptions = db.query(Transcription).filter(
-        Transcription.user_id == current_user.id
-    ).order_by(desc(Transcription.created_at)).offset(offset).limit(limit).all()
+    # Build query based on authentication
+    if current_user:
+        query = db.query(Transcription).filter(Transcription.user_id == current_user.id)
+    else:
+        if not visitor_id:
+            raise HTTPException(status_code=400, detail="Visitor ID required for guest access")
+        query = db.query(Transcription).filter(Transcription.visitor_id == visitor_id)
+    
+    total = query.count()
+    transcriptions = query.order_by(desc(Transcription.created_at)).offset(offset).limit(limit).all()
+    
+    # Log the access
+    log_audio_event(
+        db=db,
+        request=request,
+        action="list_history_transcriptions",
+        user_id=current_user.id if current_user else None,
+        visitor_id=visitor_id if not current_user else None,
+        status="success"
+    )
     
     return {
         "total": total,
@@ -727,17 +1063,28 @@ def get_transcription_history(
 
 @router.delete("/history/transcriptions/{transcription_id}")
 def delete_transcription(
+    request: Request,
     transcription_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: Optional[User] = Depends(get_optional_user)
 ):
-    """Delete a transcription."""
-    transcription = db.query(Transcription).filter(
-        Transcription.id == transcription_id,
-        Transcription.user_id == current_user.id
-    ).first()
+    """Delete a transcription. Works for guests and authenticated users."""
+    visitor_id = request.headers.get("X-Visitor-Id")
+    
+    # Build query based on authentication
+    query = db.query(Transcription).filter(Transcription.id == transcription_id)
+    
+    if current_user:
+        query = query.filter(Transcription.user_id == current_user.id)
+    else:
+        if not visitor_id:
+            raise HTTPException(status_code=400, detail="Visitor ID required for guest access")
+        query = query.filter(Transcription.visitor_id == visitor_id)
+    
+    transcription = query.first()
     
     if not transcription:
+        # Return 404 for cross-visitor access attempts
         raise HTTPException(status_code=404, detail="Transcription not found")
     
     # Delete files if exist
@@ -747,7 +1094,66 @@ def delete_transcription(
             if path.exists():
                 path.unlink()
     
+    # Log the deletion
+    log_audio_event(
+        db=db,
+        request=request,
+        action="delete_transcription",
+        user_id=current_user.id if current_user else None,
+        visitor_id=visitor_id if not current_user else None,
+        transcription_id=transcription_id,
+        status="success"
+    )
+    
     db.delete(transcription)
     db.commit()
     
     return {"message": "Transcription deleted successfully"}
+
+
+@router.post("/events")
+def log_client_event(
+    request: Request,
+    action: str = Form(...),
+    generation_id: Optional[int] = Form(None),
+    transcription_id: Optional[int] = Form(None),
+    voice_id: Optional[str] = Form(None),
+    voice_name: Optional[str] = Form(None),
+    language: Optional[str] = Form(None),
+    audio_duration: Optional[float] = Form(None),
+    file_size: Optional[int] = Form(None),
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_optional_user)
+):
+    """
+    Log client-side audio events (play, download, etc.).
+    Works for guests and authenticated users.
+    """
+    import time
+    start_time = time.time()
+    
+    visitor_id = request.headers.get("X-Visitor-Id")
+    
+    # For guests, require visitor ID
+    if not current_user and not visitor_id:
+        raise HTTPException(status_code=400, detail="Visitor ID required for guest access")
+    
+    # Log the event
+    log_audio_event(
+        db=db,
+        request=request,
+        action=action,
+        user_id=current_user.id if current_user else None,
+        visitor_id=visitor_id if not current_user else None,
+        voice_id=voice_id,
+        voice_name=voice_name,
+        language=language,
+        audio_duration=audio_duration,
+        file_size=file_size,
+        generation_id=generation_id,
+        transcription_id=transcription_id,
+        status="success",
+        processing_time_ms=int((time.time() - start_time) * 1000)
+    )
+    
+    return {"status": "logged"}
