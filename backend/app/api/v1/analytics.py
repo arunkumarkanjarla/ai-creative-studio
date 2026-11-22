@@ -645,8 +645,8 @@ def get_audio_events_log(
     user_ids = [e.user_id for e in events if e.user_id]
     users_map = {}
     if user_ids:
-        users = db.query(User.id, User.email, User.username).filter(User.id.in_(user_ids)).all()
-        users_map = {u.id: {"email": u.email, "username": u.username} for u in users}
+        users = db.query(User.id, User.email, User.name).filter(User.id.in_(user_ids)).all()
+        users_map = {u.id: {"email": u.email, "name": u.name} for u in users}
     
     return {
         "total": total,
@@ -655,7 +655,7 @@ def get_audio_events_log(
                 "id": e.id,
                 "user_id": e.user_id,
                 "user_email": users_map.get(e.user_id, {}).get("email") if e.user_id else None,
-                "user_name": users_map.get(e.user_id, {}).get("username") if e.user_id else None,
+                "user_name": users_map.get(e.user_id, {}).get("name") if e.user_id else None,
                 "visitor_id": e.visitor_id,
                 "ip_address": str(e.ip_address) if e.ip_address else None,
                 "user_agent": e.user_agent,
@@ -736,7 +736,7 @@ def get_audio_users_list(
                     "user_type": "authenticated",
                     "user_id": u.user_id,
                     "user_email": user.email if user else None,
-                    "user_name": user.username if user else None,
+                    "user_name": user.name if user else None,
                     "visitor_id": None,
                     "ip_address": None,
                     "first_seen": u.first_seen.isoformat() if u.first_seen else None,
@@ -819,7 +819,7 @@ def get_audio_user_timeline(
         user_info = {
             "user_id": user.id if user else None,
             "email": user.email if user else None,
-            "username": user.username if user else None
+            "name": user.name if user else None
         } if user else None
     else:
         query = query.filter(AudioEvent.visitor_id == identifier)
@@ -893,8 +893,8 @@ def export_audio_events_csv(
     user_ids = [e.user_id for e in events if e.user_id]
     users_map = {}
     if user_ids:
-        users = db.query(User.id, User.email, User.username).filter(User.id.in_(user_ids)).all()
-        users_map = {u.id: {"email": u.email, "username": u.username} for u in users}
+        users = db.query(User.id, User.email, User.name).filter(User.id.in_(user_ids)).all()
+        users_map = {u.id: {"email": u.email, "name": u.name} for u in users}
     
     output = io.StringIO()
     writer = csv.writer(output)
@@ -911,7 +911,7 @@ def export_audio_events_csv(
             e.created_at.isoformat() if e.created_at else "",
             "Authenticated" if e.user_id else "Guest",
             user_info.get("email", "") if e.user_id else "",
-            user_info.get("username", "") if e.user_id else "",
+            user_info.get("name", "") if e.user_id else "",
             e.visitor_id or "",
             str(e.ip_address) if e.ip_address else "",
             e.action,

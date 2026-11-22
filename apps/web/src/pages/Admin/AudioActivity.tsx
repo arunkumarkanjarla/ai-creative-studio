@@ -1,9 +1,9 @@
 import { useState, useEffect } from "react";
-import { BarChart, Bar, LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
+import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
 import { format, subDays, startOfDay, endOfDay, parseISO } from "date-fns";
 import { 
   Calendar, Users, AudioLines, Play, Download, FileText, 
-  TrendingUp, AlertTriangle, Search, Filter, ChevronLeft, ChevronRight 
+  TrendingUp, ChevronLeft, ChevronRight 
 } from "lucide-react";
 import { apiRequest } from "../../services/api";
 
