@@ -17,6 +17,8 @@ from app.api.v1.transcribe import router as transcribe_router
 from app.api.v1.analytics import router as analytics_router
 from app.api.v1.audio import router as audio_router
 from app.api.v1.admin_audio import router as admin_audio_router
+from app.api.v1.video import router as video_router
+from app.api.v1.admin_video import router as admin_video_router
 from app.db.database import SessionLocal, engine, Base
 from app.core.analytics import track_page_visit, get_client_ip
 from app.core.security import decode_token
@@ -32,6 +34,8 @@ async def lifespan(app: FastAPI):
     from app.models.analytics import VisitorSession, LoginSession, UsageEvent
     from app.models.audio import VoiceProfile, TTSGeneration, Transcription
     from app.models.audio_events import AudioEvent
+    from app.models.video import VideoProject, VideoScene, VideoCharacter
+    from app.models.video_events import VideoEvent
     
     # Create all tables if they don't exist
     print("Creating database tables...")
@@ -45,6 +49,17 @@ async def lifespan(app: FastAPI):
         run_migrations(db)
     finally:
         db.close()
+
+    # Recover interrupted video jobs and start in-process worker
+    try:
+        from app.services.video.job_runner import fail_stale_processing_jobs, get_job_backend
+        stale = fail_stale_processing_jobs()
+        if stale:
+            print(f"Marked {stale} stale video job(s) as failed")
+        get_job_backend().start()
+        print("Video job runner started (in-process, concurrency=1)")
+    except Exception as e:
+        print(f"Video job runner startup warning: {e}")
     
     yield
     
@@ -154,6 +169,8 @@ app.include_router(transcribe_router, prefix="/api/v1")
 app.include_router(analytics_router, prefix="/api/v1")
 app.include_router(audio_router, prefix="/api/v1")
 app.include_router(admin_audio_router, prefix="/api/v1")
+app.include_router(video_router, prefix="/api/v1")
+app.include_router(admin_video_router, prefix="/api/v1")
 
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]

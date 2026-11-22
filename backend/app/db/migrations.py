@@ -71,6 +71,21 @@ def run_migrations(db: Session):
         
         for index_sql in audio_events_indexes:
             db.execute(text(index_sql))
+
+        # Video Studio indexes / safety alters (tables created via SQLAlchemy create_all)
+        video_migrations = [
+            "CREATE INDEX IF NOT EXISTS ix_video_projects_user_created ON video_projects (user_id, created_at)",
+            "CREATE INDEX IF NOT EXISTS ix_video_projects_status_created ON video_projects (status, created_at)",
+            "CREATE INDEX IF NOT EXISTS ix_video_events_action ON video_events (action)",
+            "CREATE INDEX IF NOT EXISTS ix_video_events_status ON video_events (status)",
+            "CREATE INDEX IF NOT EXISTS ix_video_events_created_at ON video_events (created_at)",
+            "CREATE INDEX IF NOT EXISTS ix_video_events_project_id ON video_events (project_id)",
+        ]
+        for migration in video_migrations:
+            try:
+                db.execute(text(migration))
+            except Exception as video_err:
+                print(f"Video migration note: {video_err}")
         
         db.commit()
         print("✓ Database migrations completed")

@@ -1,0 +1,10 @@
+fastapi==0.163.0
+uvicorn==0.54.0
+python-multipart==0.0.33
+pydantic==2.14.3
+httpx==0.28.1
+# Add your GPU stack here (torch, diffusers, etc.) — do not commit large wheels.
+# torch
+# diffusers
+# transformers
+# accelerate
