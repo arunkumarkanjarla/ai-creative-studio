@@ -40,6 +40,14 @@ import ReferenceList from "./pages/Admin/ReferenceList";
 import AnalyticsReports from "./pages/AnalyticsReports";
 import AudioActivity from "./pages/Admin/AudioActivity";
 
+import AdminAudioOverview from "./pages/Admin/Audio/AdminAudioOverview";
+import AdminGeneratedAudio from "./pages/Admin/Audio/AdminGeneratedAudio";
+import AdminTranscriptions from "./pages/Admin/Audio/AdminTranscriptions";
+import AdminVoiceLibrary from "./pages/Admin/Audio/AdminVoiceLibrary";
+import AdminUsersGuests from "./pages/Admin/Audio/AdminUsersGuests";
+import AdminEventLog from "./pages/Admin/Audio/AdminEventLog";
+import AdminErrors from "./pages/Admin/Audio/AdminErrors";
+
 import "./App.css";
 
 const SIDEBAR_COLLAPSED_KEY = "acs_sidebar_collapsed";
@@ -183,6 +191,13 @@ function App() {
                   <Route path="/admin/references" element={<ReferenceList />} />
                   <Route path="/admin/analytics" element={<AnalyticsReports />} />
                   <Route path="/admin/audio-activity" element={<AudioActivity />} />
+                  <Route path="/admin/audio/overview" element={<AdminAudioOverview />} />
+                  <Route path="/admin/audio/generated" element={<AdminGeneratedAudio />} />
+                  <Route path="/admin/audio/transcriptions" element={<AdminTranscriptions />} />
+                  <Route path="/admin/audio/voices" element={<AdminVoiceLibrary />} />
+                  <Route path="/admin/audio/users-guests" element={<AdminUsersGuests />} />
+                  <Route path="/admin/audio/events" element={<AdminEventLog />} />
+                  <Route path="/admin/audio/errors" element={<AdminErrors />} />
                 </Route>
               </Route>
             </Route>
