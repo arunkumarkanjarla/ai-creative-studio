@@ -37,6 +37,14 @@ async def lifespan(app: FastAPI):
     Base.metadata.create_all(bind=engine, checkfirst=True)
     print("Database tables ready.")
     
+    # Run migrations for existing tables
+    from app.db.migrations import run_migrations
+    db = SessionLocal()
+    try:
+        run_migrations(db)
+    finally:
+        db.close()
+    
     yield
     
     # Cleanup on shutdown (if needed)

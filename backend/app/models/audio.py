@@ -14,6 +14,7 @@ class VoiceProfile(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)  # NULL for built-in voices
+    visitor_id = Column(String(255), nullable=True, index=True)  # For guest custom voices
     
     name = Column(String(200), nullable=False, index=True)
     voice_id = Column(String(200), nullable=False)  # e.g. "en-US-AriaNeural" or custom ID
@@ -50,7 +51,8 @@ class TTSGeneration(Base):
     __tablename__ = "tts_generations"
     
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)  # NULL for guests
+    visitor_id = Column(String(255), nullable=True, index=True)  # For guest ownership
     voice_profile_id = Column(Integer, ForeignKey("voice_profiles.id"), nullable=True)
     
     input_text = Column(Text, nullable=False)
@@ -85,7 +87,8 @@ class Transcription(Base):
     __tablename__ = "transcriptions"
     
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)  # NULL for guests
+    visitor_id = Column(String(255), nullable=True, index=True)  # For guest ownership
     
     # Input
     source_file = Column(String(500), nullable=True)  # Uploaded file path
