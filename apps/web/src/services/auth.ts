@@ -2,7 +2,6 @@
 import {
   apiRequest,
   apiFetch,
-  storeAuthTokens,
   clearAuthTokens,
   getAccessToken,
   getRefreshToken,

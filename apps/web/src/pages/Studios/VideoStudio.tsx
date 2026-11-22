@@ -35,6 +35,8 @@ interface SceneDraft {
   dialogue_text: string;
   character_name: string;
   duration_seconds: number;
+  file: File | null;
+  previewUrl: string | null;
 }
 
 interface VideoItem {
@@ -100,8 +102,8 @@ export default function VideoStudio() {
   ]);
   const [useScenes, setUseScenes] = useState(false);
   const [scenes, setScenes] = useState<SceneDraft[]>([
-    { prompt: "", dialogue_text: "", character_name: "Alex", duration_seconds: 8 },
-    { prompt: "", dialogue_text: "", character_name: "Sam", duration_seconds: 8 },
+    { prompt: "", dialogue_text: "", character_name: "Alex", duration_seconds: 8, file: null, previewUrl: null },
+    { prompt: "", dialogue_text: "", character_name: "Sam", duration_seconds: 8, file: null, previewUrl: null },
   ]);
 
   const [submitting, setSubmitting] = useState(false);
@@ -262,6 +264,7 @@ export default function VideoStudio() {
                 dialogue_text: s.dialogue_text || s.prompt || prompt,
                 character_name: s.character_name,
                 duration_seconds: s.duration_seconds,
+                has_image: Boolean(s.file),
               }))
             : []
         )
@@ -269,6 +272,11 @@ export default function VideoStudio() {
       characters.forEach((c) => {
         if (c.file) form.append("character_images", c.file);
       });
+      if (useScenes) {
+        scenes.forEach((s) => {
+          if (s.file) form.append("scene_images", s.file);
+        });
+      }
 
       const created = await apiRequest<VideoItem>("/video/generate", {
         method: "POST",
@@ -642,6 +650,32 @@ export default function VideoStudio() {
                       }
                     />
                   </div>
+                  <label className="upload-chip">
+                    <Upload size={14} />
+                    {s.file ? "Scene image set" : "Scene background (optional)"}
+                    <input
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp"
+                      hidden
+                      onChange={(e) => {
+                        const file = e.target.files?.[0] || null;
+                        setScenes((prev) =>
+                          prev.map((sc, idx) => {
+                            if (idx !== i) return sc;
+                            if (sc.previewUrl) URL.revokeObjectURL(sc.previewUrl);
+                            return {
+                              ...sc,
+                              file,
+                              previewUrl: file ? URL.createObjectURL(file) : null,
+                            };
+                          })
+                        );
+                      }}
+                    />
+                  </label>
+                  {s.previewUrl && (
+                    <img src={s.previewUrl} alt="" className="char-thumb" />
+                  )}
                 </div>
               ))}
               <button
@@ -655,6 +689,8 @@ export default function VideoStudio() {
                       dialogue_text: "",
                       character_name: characters[0]?.name || "Alex",
                       duration_seconds: 8,
+                      file: null,
+                      previewUrl: null,
                     },
                   ])
                 }

@@ -41,7 +41,7 @@ export default function Navbar({ onMobileMenuToggle }: NavbarProps) {
             </small>
           </div>
 
-          <button onClick={logout} className="logout-button" type="button">
+          <button onClick={() => logout()} className="logout-button" type="button">
             <LogOut size={18} />
             Logout
           </button>

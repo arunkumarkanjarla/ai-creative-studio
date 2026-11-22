@@ -44,7 +44,9 @@ router = APIRouter(prefix="/video", tags=["Video Studio"])
 BACKEND_DIR = Path(__file__).resolve().parents[3]
 VIDEO_DIR = BACKEND_DIR / "generated_videos"
 CHAR_DIR = VIDEO_DIR / "characters"
+SCENE_DIR = VIDEO_DIR / "scenes"
 CHAR_DIR.mkdir(parents=True, exist_ok=True)
+SCENE_DIR.mkdir(parents=True, exist_ok=True)
 
 ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp", "image/jpg"}
 MAX_IMAGE_BYTES = 10 * 1024 * 1024
@@ -88,6 +90,7 @@ def _project_to_dict(project: VideoProject, include_relations: bool = True) -> d
                 "dialogue_text": s.dialogue_text,
                 "character_name": s.character_name,
                 "duration_seconds": s.duration_seconds,
+                "has_image": bool(s.image_path and Path(s.image_path).exists()),
             }
             for s in (project.scenes or [])
         ]
@@ -168,6 +171,7 @@ async def create_video(
     scenes_json: str = Form("[]"),
     characters_json: str = Form("[]"),
     character_images: Optional[List[UploadFile]] = File(None),
+    scene_images: Optional[List[UploadFile]] = File(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_studio_access("video")),
 ):
@@ -233,6 +237,10 @@ async def create_video(
     if len(uploads) > MAX_CHARACTERS:
         raise HTTPException(status_code=400, detail="Too many character images")
 
+    scene_uploads = list(scene_images or [])
+    if len(scene_uploads) > 40:
+        raise HTTPException(status_code=400, detail="Too many scene images")
+
     duration = resolve_duration(length_preset, category, duration_seconds)
 
     project = VideoProject(
@@ -294,8 +302,35 @@ async def create_video(
             )
         )
 
+    scene_upload_iter = iter(scene_uploads)
     if scenes_data:
         for i, scene in enumerate(scenes_data):
+            scene_image_path = None
+            wants_scene_image = bool(scene.get("has_image")) or scene.get("upload_index") is not None
+            if wants_scene_image:
+                try:
+                    upload = next(scene_upload_iter)
+                except StopIteration:
+                    upload = None
+                if upload is not None:
+                    content_type = (upload.content_type or "").lower()
+                    if content_type not in ALLOWED_IMAGE_TYPES and not (
+                        upload.filename or ""
+                    ).lower().endswith((".jpg", ".jpeg", ".png", ".webp")):
+                        raise HTTPException(
+                            status_code=400, detail=f"Invalid image type for scene {i + 1}"
+                        )
+                    data = await upload.read()
+                    if len(data) > MAX_IMAGE_BYTES:
+                        raise HTTPException(
+                            status_code=400, detail=f"Scene image {i + 1} exceeds 10 MB"
+                        )
+                    ext = Path(upload.filename or "scene.jpg").suffix.lower() or ".jpg"
+                    if ext not in (".jpg", ".jpeg", ".png", ".webp"):
+                        ext = ".jpg"
+                    dest = SCENE_DIR / f"p{project.id}_s{i}{ext}"
+                    dest.write_bytes(data)
+                    scene_image_path = str(dest)
             db.add(
                 VideoScene(
                     project_id=project.id,
@@ -304,6 +339,7 @@ async def create_video(
                     dialogue_text=(scene.get("dialogue_text") or "").strip() or None,
                     character_name=(scene.get("character_name") or "").strip() or None,
                     duration_seconds=scene.get("duration_seconds"),
+                    image_path=scene_image_path,
                 )
             )
     else:

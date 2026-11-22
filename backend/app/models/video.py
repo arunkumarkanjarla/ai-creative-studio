@@ -88,6 +88,8 @@ class VideoScene(Base):
     dialogue_text = Column(Text, nullable=True)
     character_name = Column(String(200), nullable=True)
     duration_seconds = Column(Float, nullable=True)
+    # Optional per-scene background / plate image
+    image_path = Column(String(500), nullable=True)
 
     project = relationship("VideoProject", back_populates="scenes")
 
