@@ -20,6 +20,16 @@ BACKEND_DIR = Path(__file__).resolve().parents[3]
 AUDIO_DIR = BACKEND_DIR / "generated_audio"
 
 
+def resolve_audio_path(stored: str | None) -> Path | None:
+    """Resolve a stored file_path that may be absolute or relative to AUDIO_DIR."""
+    if not stored:
+        return None
+    path = Path(stored)
+    if path.is_absolute():
+        return path
+    return AUDIO_DIR / stored.lstrip("/")
+
+
 @router.get("/generated/summary")
 def get_generated_audio_summary(
     db: Session = Depends(get_db),
@@ -142,10 +152,8 @@ def list_generated_audio(
                 }
         
         # Check if file exists
-        file_exists = False
-        if item.file_path:
-            file_path = AUDIO_DIR / item.file_path.lstrip('/')
-            file_exists = file_path.exists()
+        file_path = resolve_audio_path(item.file_path)
+        file_exists = bool(file_path and file_path.exists())
         
         results.append({
             "id": item.id,
@@ -189,8 +197,8 @@ def download_generated_audio(
     if not generation.file_path:
         raise HTTPException(status_code=404, detail="No file path")
     
-    file_path = AUDIO_DIR / generation.file_path.lstrip('/')
-    if not file_path.exists():
+    file_path = resolve_audio_path(generation.file_path)
+    if not file_path or not file_path.exists():
         raise HTTPException(status_code=404, detail="File not found on disk")
     
     return FileResponse(
@@ -212,10 +220,9 @@ def delete_generated_audio(
         raise HTTPException(status_code=404, detail="Generation not found")
     
     # Delete file from disk if it exists
-    if generation.file_path:
-        file_path = AUDIO_DIR / generation.file_path.lstrip('/')
-        if file_path.exists():
-            file_path.unlink()
+    file_path = resolve_audio_path(generation.file_path)
+    if file_path and file_path.exists():
+        file_path.unlink()
     
     # Delete from database
     db.delete(generation)
@@ -236,10 +243,9 @@ def bulk_delete_generated_audio(
         generation = db.query(TTSGeneration).filter(TTSGeneration.id == gen_id).first()
         if generation:
             # Delete file from disk
-            if generation.file_path:
-                file_path = AUDIO_DIR / generation.file_path.lstrip('/')
-                if file_path.exists():
-                    file_path.unlink()
+            file_path = resolve_audio_path(generation.file_path)
+            if file_path and file_path.exists():
+                file_path.unlink()
             
             db.delete(generation)
             deleted += 1
@@ -450,14 +456,10 @@ def list_transcriptions(
             }
         
         # Check if files exist
-        txt_exists = False
-        srt_exists = False
-        if item.txt_file:
-            txt_path = AUDIO_DIR / item.txt_file.lstrip('/')
-            txt_exists = txt_path.exists()
-        if item.srt_file:
-            srt_path = AUDIO_DIR / item.srt_file.lstrip('/')
-            srt_exists = srt_path.exists()
+        txt_path = resolve_audio_path(item.txt_file)
+        srt_path = resolve_audio_path(item.srt_file)
+        txt_exists = bool(txt_path and txt_path.exists())
+        srt_exists = bool(srt_path and srt_path.exists())
         
         results.append({
             "id": item.id,
@@ -495,15 +497,10 @@ def delete_transcription(
         raise HTTPException(status_code=404, detail="Transcription not found")
     
     # Delete files from disk
-    if transcription.txt_file:
-        txt_path = AUDIO_DIR / transcription.txt_file.lstrip('/')
-        if txt_path.exists():
-            txt_path.unlink()
-    
-    if transcription.srt_file:
-        srt_path = AUDIO_DIR / transcription.srt_file.lstrip('/')
-        if srt_path.exists():
-            srt_path.unlink()
+    for stored in (transcription.txt_file, transcription.srt_file):
+        path = resolve_audio_path(stored)
+        if path and path.exists():
+            path.unlink()
     
     db.delete(transcription)
     db.commit()
@@ -522,15 +519,10 @@ def bulk_delete_transcriptions(
     for trans_id in transcription_ids:
         transcription = db.query(Transcription).filter(Transcription.id == trans_id).first()
         if transcription:
-            if transcription.txt_file:
-                txt_path = AUDIO_DIR / transcription.txt_file.lstrip('/')
-                if txt_path.exists():
-                    txt_path.unlink()
-            
-            if transcription.srt_file:
-                srt_path = AUDIO_DIR / transcription.srt_file.lstrip('/')
-                if srt_path.exists():
-                    srt_path.unlink()
+            for stored in (transcription.txt_file, transcription.srt_file):
+                path = resolve_audio_path(stored)
+                if path and path.exists():
+                    path.unlink()
             
             db.delete(transcription)
             deleted += 1
