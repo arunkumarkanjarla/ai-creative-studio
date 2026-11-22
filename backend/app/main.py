@@ -15,6 +15,7 @@ from app.api.v1.ai_access import router as ai_access_router
 from app.api.v1.preview import router as preview_router
 from app.api.v1.transcribe import router as transcribe_router
 from app.api.v1.analytics import router as analytics_router
+from app.api.v1.audio import router as audio_router
 from app.db.database import SessionLocal, engine, Base
 from app.core.analytics import track_page_visit, get_client_ip
 from app.core.security import decode_token
@@ -28,6 +29,7 @@ async def lifespan(app: FastAPI):
     from app.models.generated_image import GeneratedImage
     from app.models.ai_access import AIGenerationAttempt
     from app.models.analytics import VisitorSession, LoginSession, UsageEvent
+    from app.models.audio import VoiceProfile, TTSGeneration, Transcription
     
     # Create all tables if they don't exist
     print("Creating database tables...")
@@ -140,6 +142,7 @@ app.include_router(ai_access_router, prefix="/api/v1")
 app.include_router(preview_router, prefix="/api/v1")
 app.include_router(transcribe_router, prefix="/api/v1")
 app.include_router(analytics_router, prefix="/api/v1")
+app.include_router(audio_router, prefix="/api/v1")
 
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
