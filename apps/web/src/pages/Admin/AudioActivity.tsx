@@ -270,54 +270,54 @@ export default function AudioActivity() {
 
       {/* Summary Cards */}
       {summary && (
-        <div className="metrics-grid" style={{ marginBottom: "32px" }}>
-          <div className="metric-card">
-            <div className="metric-icon"><AudioLines size={24} /></div>
-            <div className="metric-content">
-              <div className="metric-label">Total Events</div>
-              <div className="metric-value">{summary.total_events.toLocaleString()}</div>
-              <div className="metric-detail">
-                {summary.success_count} success, {summary.failed_count} failed
-              </div>
+        <div className="kpi-grid" style={{ marginBottom: "32px" }}>
+          <div className="kpi-card">
+            <div className="kpi-header">
+              <AudioLines size={20} />
+              <span>Total Events</span>
+            </div>
+            <div className="kpi-value">{summary.total_events.toLocaleString()}</div>
+            <div style={{ fontSize: "12px", color: "var(--text-muted)", marginTop: "4px" }}>
+              {summary.success_count} success, {summary.failed_count} failed
             </div>
           </div>
 
-          <div className="metric-card">
-            <div className="metric-icon"><Users size={24} /></div>
-            <div className="metric-content">
-              <div className="metric-label">Users & Guests</div>
-              <div className="metric-value">
-                {summary.unique_users + summary.unique_visitors}
-              </div>
-              <div className="metric-detail">
-                {summary.unique_users} users, {summary.unique_visitors} guests
-              </div>
+          <div className="kpi-card">
+            <div className="kpi-header">
+              <Users size={20} />
+              <span>Users & Guests</span>
+            </div>
+            <div className="kpi-value">
+              {summary.unique_users + summary.unique_visitors}
+            </div>
+            <div style={{ fontSize: "12px", color: "var(--text-muted)", marginTop: "4px" }}>
+              {summary.unique_users} users, {summary.unique_visitors} guests
             </div>
           </div>
 
-          <div className="metric-card">
-            <div className="metric-icon"><TrendingUp size={24} /></div>
-            <div className="metric-content">
-              <div className="metric-label">TTS / STT</div>
-              <div className="metric-value">
-                {summary.tts_count} / {summary.stt_count}
-              </div>
-              <div className="metric-detail">
-                {summary.play_count} plays, {summary.download_count} downloads
-              </div>
+          <div className="kpi-card">
+            <div className="kpi-header">
+              <TrendingUp size={20} />
+              <span>TTS / STT</span>
+            </div>
+            <div className="kpi-value">
+              {summary.tts_count} / {summary.stt_count}
+            </div>
+            <div style={{ fontSize: "12px", color: "var(--text-muted)", marginTop: "4px" }}>
+              {summary.play_count} plays, {summary.download_count} downloads
             </div>
           </div>
 
-          <div className="metric-card">
-            <div className="metric-icon"><FileText size={24} /></div>
-            <div className="metric-content">
-              <div className="metric-label">Processing</div>
-              <div className="metric-value">
-                {(summary.total_characters / 1000).toFixed(1)}K chars
-              </div>
-              <div className="metric-detail">
-                {summary.total_minutes.toFixed(1)} minutes audio
-              </div>
+          <div className="kpi-card">
+            <div className="kpi-header">
+              <FileText size={20} />
+              <span>Processing</span>
+            </div>
+            <div className="kpi-value">
+              {(summary.total_characters / 1000).toFixed(1)}K
+            </div>
+            <div style={{ fontSize: "12px", color: "var(--text-muted)", marginTop: "4px" }}>
+              {summary.total_minutes.toFixed(1)} min audio
             </div>
           </div>
         </div>
