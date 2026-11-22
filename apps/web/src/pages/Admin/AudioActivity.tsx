@@ -9,7 +9,17 @@ import { apiRequest } from "../../services/api";
 
 const CHART_COLORS = ["var(--accent)", "var(--accent-strong)", "var(--text-secondary)", "var(--text-muted)"];
 
-export default function AudioActivity() {
+type EventsTab = "users" | "log" | "timeline";
+
+interface AudioActivityProps {
+  initialTab?: EventsTab;
+  initialStatusFilter?: string;
+}
+
+export default function AudioActivity({
+  initialTab = "users",
+  initialStatusFilter = "",
+}: AudioActivityProps = {}) {
   const [dateRange, setDateRange] = useState<"today" | "7d" | "30d" | "custom">("7d");
   const [customStartDate, setCustomStartDate] = useState("");
   const [customEndDate, setCustomEndDate] = useState("");
@@ -23,14 +33,14 @@ export default function AudioActivity() {
   const [loading, setLoading] = useState(true);
   
   // Events log filters and state
-  const [eventsTab, setEventsTab] = useState<"users" | "log" | "timeline">("users");
+  const [eventsTab, setEventsTab] = useState<EventsTab>(initialTab);
   const [events, setEvents] = useState<any[]>([]);
   const [eventsTotal, setEventsTotal] = useState(0);
   const [eventsPage, setEventsPage] = useState(0);
   const [eventFilters, setEventFilters] = useState({
     user_type: "",
     action: "",
-    status: "",
+    status: initialStatusFilter,
     search: ""
   });
   
