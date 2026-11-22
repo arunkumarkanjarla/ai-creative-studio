@@ -44,4 +44,6 @@ Thumbs.db
 # AI and Generated Data Directories
 backend/generated_images/
 backend/models/
-backend/reference_images/backend/generated_audio/
+backend/reference_images/
+backend/generated_audio/
+!backend/generated_audio/.gitkeep
