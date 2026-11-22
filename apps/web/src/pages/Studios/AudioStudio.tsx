@@ -13,6 +13,10 @@ interface Voice {
   age_group: string;
   language: string;
   locale: string;
+  region?: string;
+  country?: string;
+  accent?: string;
+  voice_type?: string;
   is_custom: boolean;
   pitch?: number;
   rate?: number;
@@ -61,6 +65,15 @@ export default function AudioStudio() {
   const [genderFilter, setGenderFilter] = useState<string>("");
   const [ageFilter, setAgeFilter] = useState<string>("");
   const [langFilter, setLangFilter] = useState<string>("");
+  const [regionFilter, setRegionFilter] = useState<string>("");
+  const [countryFilter, setCountryFilter] = useState<string>("");
+  const [voiceTypeFilter, setVoiceTypeFilter] = useState<string>("");
+  const [searchFilter, setSearchFilter] = useState<string>("");
+  
+  // Preview state
+  const [playingPreview, setPlayingPreview] = useState<string | null>(null);
+  const [loadingPreview, setLoadingPreview] = useState<string | null>(null);
+  const previewAudioRef = useRef<HTMLAudioElement | null>(null);
   
   // STT State
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
@@ -349,8 +362,63 @@ export default function AudioStudio() {
     }
   };
 
-  const filteredVoices = voices;
+  const handlePreviewPlay = async (voice: Voice) => {
+    if (playingPreview === voice.voice_id) {
+      // Stop playing
+      if (previewAudioRef.current) {
+        previewAudioRef.current.pause();
+        previewAudioRef.current = null;
+      }
+      setPlayingPreview(null);
+      return;
+    }
+    
+    try {
+      setLoadingPreview(voice.voice_id);
+      
+      const url = `/audio/voices/${voice.voice_id}/preview`;
+      const response = await apiRequest(url, { method: "GET", isBlob: true });
+      const blob = await response.blob();
+      const audioUrl = URL.createObjectURL(blob);
+      
+      const audio = new Audio(audioUrl);
+      previewAudioRef.current = audio;
+      setPlayingPreview(voice.voice_id);
+      setLoadingPreview(null);
+      
+      audio.onended = () => {
+        setPlayingPreview(null);
+        URL.revokeObjectURL(audioUrl);
+      };
+      
+      await audio.play();
+    } catch (error: any) {
+      setLoadingPreview(null);
+      alert(`Preview failed: ${error.message}`);
+    }
+  };
+
+  const filteredVoices = voices.filter((v) => {
+    if (genderFilter && v.gender !== genderFilter) return false;
+    if (ageFilter && v.age_group !== ageFilter) return false;
+    if (langFilter && v.language !== langFilter) return false;
+    if (regionFilter && v.region !== regionFilter) return false;
+    if (countryFilter && v.country !== countryFilter) return false;
+    if (voiceTypeFilter && v.voice_type !== voiceTypeFilter) return false;
+    if (searchFilter) {
+      const search = searchFilter.toLowerCase();
+      if (!v.name.toLowerCase().includes(search) && 
+          !v.voice_id.toLowerCase().includes(search)) {
+        return false;
+      }
+    }
+    return true;
+  });
+  
   const languages = Array.from(new Set(voices.map(v => v.language)));
+  const regions = Array.from(new Set(voices.filter(v => v.region).map(v => v.region)));
+  const countries = Array.from(new Set(voices.filter(v => v.country).map(v => v.country)));
+  const voiceTypes = Array.from(new Set(voices.filter(v => v.voice_type).map(v => v.voice_type)));
 
   return (
     <div className="content-page">
@@ -487,14 +555,43 @@ export default function AudioStudio() {
           <div className="generation-card">
             <h3>Voice Library</h3>
             
-            <div className="voice-filters">
+            <div className="voice-filters" style={{display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "12px"}}>
+              <div className="filter-group">
+                <label>Search:</label>
+                <input 
+                  type="text" 
+                  placeholder="Voice name..." 
+                  value={searchFilter} 
+                  onChange={(e) => setSearchFilter(e.target.value)}
+                />
+              </div>
+              
+              <div className="filter-group">
+                <label>Region:</label>
+                <select value={regionFilter} onChange={(e) => setRegionFilter(e.target.value)}>
+                  <option value="">All Regions</option>
+                  {regions.map(r => (
+                    <option key={r} value={r}>{r}</option>
+                  ))}
+                </select>
+              </div>
+              
+              <div className="filter-group">
+                <label>Country:</label>
+                <select value={countryFilter} onChange={(e) => setCountryFilter(e.target.value)}>
+                  <option value="">All Countries</option>
+                  {countries.map(c => (
+                    <option key={c} value={c}>{c}</option>
+                  ))}
+                </select>
+              </div>
+              
               <div className="filter-group">
                 <label>Gender:</label>
                 <select value={genderFilter} onChange={(e) => setGenderFilter(e.target.value)}>
                   <option value="">All</option>
                   <option value="male">Male</option>
                   <option value="female">Female</option>
-                  <option value="child">Child</option>
                 </select>
               </div>
               
@@ -516,6 +613,16 @@ export default function AudioStudio() {
                   ))}
                 </select>
               </div>
+              
+              <div className="filter-group">
+                <label>Style/Type:</label>
+                <select value={voiceTypeFilter} onChange={(e) => setVoiceTypeFilter(e.target.value)}>
+                  <option value="">All Types</option>
+                  {voiceTypes.map(t => (
+                    <option key={t} value={t}>{t}</option>
+                  ))}
+                </select>
+              </div>
             </div>
 
             <div className="voice-list">
@@ -526,13 +633,42 @@ export default function AudioStudio() {
                   onClick={() => setSelectedVoice(voice)}
                 >
                   <div className="voice-info">
-                    <div className="voice-name">{voice.name}</div>
+                    <div className="voice-name">
+                      {voice.name}
+                      {voice.country && <span style={{fontSize: "12px", marginLeft: "8px", opacity: 0.7}}>
+                        {voice.region} - {voice.country}
+                      </span>}
+                    </div>
                     <div className="voice-tags">
                       <span className="tag">{voice.gender}</span>
+                      <span className="tag">{voice.age_group}</span>
                       <span className="tag">{voice.language}</span>
+                      {voice.voice_type && <span className="tag">{voice.voice_type}</span>}
                       {voice.is_custom && <span className="tag custom">Custom</span>}
                     </div>
                   </div>
+                  <button
+                    className="preview-btn"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handlePreviewPlay(voice);
+                    }}
+                    disabled={loadingPreview === voice.voice_id}
+                  >
+                    {loadingPreview === voice.voice_id ? (
+                      <span style={{animation: "spin 1s linear infinite"}}>⏳</span>
+                    ) : playingPreview === voice.voice_id ? (
+                      <>
+                        <Pause size={16} />
+                        Stop
+                      </>
+                    ) : (
+                      <>
+                        <Play size={16} />
+                        Preview
+                      </>
+                    )}
+                  </button>
                 </div>
               ))}
             </div>
