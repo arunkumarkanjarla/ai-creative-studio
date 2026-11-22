@@ -28,8 +28,8 @@ def get_generated_audio_summary(
     """Get summary statistics for all generated TTS audio."""
     # Total counts
     total_files = db.query(func.count(TTSGeneration.id)).scalar()
-    total_size = db.query(func.sum(TTSGeneration.file_size)).scalar() or 0
-    total_duration = db.query(func.sum(TTSGeneration.duration)).scalar() or 0.0
+    total_size = db.query(func.sum(TTSGeneration.file_size_bytes)).scalar() or 0
+    total_duration = db.query(func.sum(TTSGeneration.duration_seconds)).scalar() or 0.0
     
     # Today's count
     today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
@@ -66,12 +66,7 @@ def list_generated_audio(
     
     # Apply filters
     if search:
-        query = query.filter(
-            or_(
-                TTSGeneration.text.ilike(f"%{search}%"),
-                TTSGeneration.full_text.ilike(f"%{search}%")
-            )
-        )
+        query = query.filter(TTSGeneration.input_text.ilike(f"%{search}%"))
     
     if user_type == "user":
         query = query.filter(TTSGeneration.user_id.isnot(None))
@@ -130,8 +125,7 @@ def list_generated_audio(
         else:
             user_info = {
                 "type": "guest",
-                "visitor_id": item.visitor_id[:8] if item.visitor_id else "unknown",
-                "ip": item.ip_address
+                "visitor_id": item.visitor_id[:8] if item.visitor_id else "unknown"
             }
         
         # Get voice info
@@ -157,19 +151,19 @@ def list_generated_audio(
             "id": item.id,
             "user": user_info,
             "voice": voice_info,
-            "text_preview": item.text,
-            "full_text": item.full_text,
+            "text_preview": item.input_text[:100] + "..." if len(item.input_text) > 100 else item.input_text,
+            "full_text": item.input_text,
             "pitch": item.pitch,
             "rate": item.rate,
             "volume": item.volume,
             "output_format": item.output_format,
-            "duration": item.duration,
-            "file_size": item.file_size,
+            "duration": item.duration_seconds,
+            "file_size": item.file_size_bytes,
             "status": item.status,
             "created_at": item.created_at.isoformat(),
             "file_path": item.file_path,
             "file_exists": file_exists,
-            "download_url": item.download_url if file_exists else None
+            "download_url": f"/api/v1/audio/download/{item.id}" if file_exists else None
         })
     
     return {
@@ -271,12 +265,7 @@ def export_generated_audio_csv(
     
     # Apply same filters as list endpoint
     if search:
-        query = query.filter(
-            or_(
-                TTSGeneration.text.ilike(f"%{search}%"),
-                TTSGeneration.full_text.ilike(f"%{search}%")
-            )
-        )
+        query = query.filter(TTSGeneration.input_text.ilike(f"%{search}%"))
     
     if user_type == "user":
         query = query.filter(TTSGeneration.user_id.isnot(None))
@@ -310,7 +299,7 @@ def export_generated_audio_csv(
     output = io.StringIO()
     writer = csv.writer(output)
     writer.writerow([
-        "ID", "User Type", "User Name/Email", "Visitor ID", "IP",
+        "ID", "User Type", "User Name/Email", "Visitor ID",
         "Voice", "Language", "Region", "Text Preview", "Duration",
         "File Size", "Status", "Created At"
     ])
@@ -319,7 +308,6 @@ def export_generated_audio_csv(
         user_type = "user" if item.user_id else "guest"
         user_name = ""
         visitor_id = ""
-        ip = item.ip_address or ""
         
         if item.user_id:
             user = db.query(User).filter(User.id == item.user_id).first()
@@ -342,13 +330,12 @@ def export_generated_audio_csv(
             user_type,
             user_name,
             visitor_id,
-            ip,
             voice_name,
             language,
             region,
-            item.text[:100],
-            item.duration,
-            item.file_size,
+            item.input_text[:100],
+            item.duration_seconds,
+            item.file_size_bytes,
             item.status,
             item.created_at.isoformat()
         ])
@@ -370,7 +357,7 @@ def get_transcriptions_summary(
 ):
     """Get summary statistics for all transcriptions."""
     total_files = db.query(func.count(Transcription.id)).scalar()
-    total_duration = db.query(func.sum(Transcription.duration)).scalar() or 0.0
+    total_duration = db.query(func.sum(Transcription.duration_seconds)).scalar() or 0.0
     
     today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
     today_count = db.query(func.count(Transcription.id)).filter(
@@ -404,12 +391,7 @@ def list_transcriptions(
     
     # Apply filters
     if search:
-        query = query.filter(
-            or_(
-                Transcription.text.ilike(f"%{search}%"),
-                Transcription.full_text.ilike(f"%{search}%")
-            )
-        )
+        query = query.filter(Transcription.transcript_text.ilike(f"%{search}%"))
     
     if user_type == "user":
         query = query.filter(Transcription.user_id.isnot(None))
@@ -438,7 +420,8 @@ def list_transcriptions(
     total = query.count()
     
     # Sorting
-    sort_col = getattr(Transcription, sort_by)
+    sort_field = "duration_seconds" if sort_by == "duration" else sort_by
+    sort_col = getattr(Transcription, sort_field)
     if sort_order == "desc":
         query = query.order_by(desc(sort_col))
     else:
@@ -463,31 +446,30 @@ def list_transcriptions(
         else:
             user_info = {
                 "type": "guest",
-                "visitor_id": item.visitor_id[:8] if item.visitor_id else "unknown",
-                "ip": item.ip_address
+                "visitor_id": item.visitor_id[:8] if item.visitor_id else "unknown"
             }
         
         # Check if files exist
         txt_exists = False
         srt_exists = False
-        if item.txt_path:
-            txt_path = AUDIO_DIR / item.txt_path.lstrip('/')
+        if item.txt_file:
+            txt_path = AUDIO_DIR / item.txt_file.lstrip('/')
             txt_exists = txt_path.exists()
-        if item.srt_path:
-            srt_path = AUDIO_DIR / item.srt_path.lstrip('/')
+        if item.srt_file:
+            srt_path = AUDIO_DIR / item.srt_file.lstrip('/')
             srt_exists = srt_path.exists()
         
         results.append({
             "id": item.id,
             "user": user_info,
-            "text_preview": item.text,
-            "full_text": item.full_text,
+            "text_preview": item.transcript_text[:100] + "..." if item.transcript_text and len(item.transcript_text) > 100 else item.transcript_text or "",
+            "full_text": item.transcript_text or "",
             "language": item.language,
-            "duration": item.duration,
+            "duration": item.duration_seconds,
             "status": item.status,
             "created_at": item.created_at.isoformat(),
-            "txt_url": item.txt_url if txt_exists else None,
-            "srt_url": item.srt_url if srt_exists else None,
+            "txt_url": f"/api/v1/audio/download/transcription/{item.id}/txt" if txt_exists else None,
+            "srt_url": f"/api/v1/audio/download/transcription/{item.id}/srt" if srt_exists else None,
             "txt_exists": txt_exists,
             "srt_exists": srt_exists
         })
@@ -513,13 +495,13 @@ def delete_transcription(
         raise HTTPException(status_code=404, detail="Transcription not found")
     
     # Delete files from disk
-    if transcription.txt_path:
-        txt_path = AUDIO_DIR / transcription.txt_path.lstrip('/')
+    if transcription.txt_file:
+        txt_path = AUDIO_DIR / transcription.txt_file.lstrip('/')
         if txt_path.exists():
             txt_path.unlink()
     
-    if transcription.srt_path:
-        srt_path = AUDIO_DIR / transcription.srt_path.lstrip('/')
+    if transcription.srt_file:
+        srt_path = AUDIO_DIR / transcription.srt_file.lstrip('/')
         if srt_path.exists():
             srt_path.unlink()
     
@@ -540,13 +522,13 @@ def bulk_delete_transcriptions(
     for trans_id in transcription_ids:
         transcription = db.query(Transcription).filter(Transcription.id == trans_id).first()
         if transcription:
-            if transcription.txt_path:
-                txt_path = AUDIO_DIR / transcription.txt_path.lstrip('/')
+            if transcription.txt_file:
+                txt_path = AUDIO_DIR / transcription.txt_file.lstrip('/')
                 if txt_path.exists():
                     txt_path.unlink()
             
-            if transcription.srt_path:
-                srt_path = AUDIO_DIR / transcription.srt_path.lstrip('/')
+            if transcription.srt_file:
+                srt_path = AUDIO_DIR / transcription.srt_file.lstrip('/')
                 if srt_path.exists():
                     srt_path.unlink()
             
@@ -573,12 +555,7 @@ def export_transcriptions_csv(
     
     # Apply filters
     if search:
-        query = query.filter(
-            or_(
-                Transcription.text.ilike(f"%{search}%"),
-                Transcription.full_text.ilike(f"%{search}%")
-            )
-        )
+        query = query.filter(Transcription.transcript_text.ilike(f"%{search}%"))
     
     if user_type == "user":
         query = query.filter(Transcription.user_id.isnot(None))
@@ -609,7 +586,7 @@ def export_transcriptions_csv(
     output = io.StringIO()
     writer = csv.writer(output)
     writer.writerow([
-        "ID", "User Type", "User Name/Email", "Visitor ID", "IP",
+        "ID", "User Type", "User Name/Email", "Visitor ID",
         "Language", "Text Preview", "Duration", "Status", "Created At"
     ])
     
@@ -617,7 +594,6 @@ def export_transcriptions_csv(
         user_type = "user" if item.user_id else "guest"
         user_name = ""
         visitor_id = ""
-        ip = item.ip_address or ""
         
         if item.user_id:
             user = db.query(User).filter(User.id == item.user_id).first()
@@ -630,10 +606,9 @@ def export_transcriptions_csv(
             user_type,
             user_name,
             visitor_id,
-            ip,
             item.language,
-            item.text[:100],
-            item.duration,
+            (item.transcript_text or "")[:100],
+            item.duration_seconds,
             item.status,
             item.created_at.isoformat()
         ])
