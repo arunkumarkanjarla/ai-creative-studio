@@ -190,7 +190,8 @@ export default function AdminTranscriptions() {
     }
   };
 
-  const formatDuration = (seconds: number) => {
+  const formatDuration = (seconds: number | null | undefined) => {
+    if (seconds == null || Number.isNaN(seconds)) return "-";
     if (seconds < 60) return `${seconds.toFixed(1)}s`;
     const mins = Math.floor(seconds / 60);
     const secs = Math.floor(seconds % 60);

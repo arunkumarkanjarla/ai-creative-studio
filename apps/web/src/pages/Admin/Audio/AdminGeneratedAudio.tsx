@@ -236,13 +236,15 @@ export default function AdminGeneratedAudio() {
     }
   };
 
-  const formatBytes = (bytes: number) => {
+  const formatBytes = (bytes: number | null | undefined) => {
+    if (bytes == null || Number.isNaN(bytes)) return "-";
     if (bytes < 1024) return `${bytes} B`;
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   };
 
-  const formatDuration = (seconds: number) => {
+  const formatDuration = (seconds: number | null | undefined) => {
+    if (seconds == null || Number.isNaN(seconds)) return "-";
     if (seconds < 60) return `${seconds.toFixed(1)}s`;
     const mins = Math.floor(seconds / 60);
     const secs = Math.floor(seconds % 60);
