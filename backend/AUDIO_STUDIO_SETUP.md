@@ -4,27 +4,9 @@
 
 The Audio Studio uses `faster-whisper==1.1.0` for speech-to-text transcription.
 
-### Known Issue: av Library Compatibility
+### No Patches Required
 
-**Problem:** faster-whisper 1.1.0 uses a parameter `metadata_errors="ignore"` in `av.open()` that is not supported by av 19.0.2 (the latest available version on some systems).
-
-**Solution:** The `faster_whisper/audio.py` file must be patched to remove this parameter:
-
-```bash
-sed -i 's/metadata_errors="ignore"//g' /home/ubuntu/.local/lib/python3.12/site-packages/faster_whisper/audio.py
-```
-
-Or manually edit the file and change line 46 from:
-```python
-with av.open(input_file, mode="r", metadata_errors="ignore") as container:
-```
-
-To:
-```python
-with av.open(input_file, mode="r") as container:
-```
-
-**Note:** This patch is automatically applied during setup. If you reinstall faster-whisper, you'll need to reapply the patch.
+The audio transcription system decodes audio files internally using Python's `wave` module and NumPy, bypassing faster-whisper's av decoder entirely. This eliminates any compatibility issues between faster-whisper and the av library. Simply install the packages from requirements.txt and you're ready to go.
 
 ## Whisper Model Download
 
@@ -58,6 +40,10 @@ sudo apt-get install ffmpeg
 
 **Windows:**
 ```bash
+# Option 1: Using winget (Windows 10+)
+winget install Gyan.FFmpeg
+
+# Option 2: Using Chocolatey
 choco install ffmpeg
 ```
 
@@ -102,7 +88,7 @@ Run the following to verify setup:
 # Check ffmpeg
 ffmpeg -version
 
-# Test TTS
+# Test TTS (generates English audio)
 curl -X POST "http://localhost:8000/api/v1/audio/generate" \
   -H "Authorization: Bearer YOUR_TOKEN" \
   -F "text=Hello world" \
@@ -112,8 +98,13 @@ curl -X POST "http://localhost:8000/api/v1/audio/generate" \
   -F "volume=1.0" \
   -F "output_format=mp3"
 
-# Test STT
+# Test STT (transcribes audio, auto-detects language)
 curl -X POST "http://localhost:8000/api/v1/audio/transcribe" \
   -H "Authorization: Bearer YOUR_TOKEN" \
   -F "audio=@test.mp3"
 ```
+
+### Supported Languages
+
+**TTS:** English (US, India, UK), Hindi, Telugu  
+**STT:** Auto-detects from 99+ languages including English, Hindi, Telugu, and all major Indian languages

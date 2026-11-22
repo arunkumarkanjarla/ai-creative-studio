@@ -519,9 +519,22 @@ async def transcribe_audio(
         model_size = os.getenv("WHISPER_MODEL_SIZE", "tiny")
         model = WhisperModel(model_size, device="cpu", compute_type="int8")
         
-        # Transcribe the converted WAV file
+        # Decode audio ourselves to bypass faster-whisper's av decoder
+        # This avoids the metadata_errors parameter incompatibility
+        import wave
+        import numpy as np
+        
+        with wave.open(str(wav_path), 'rb') as wav_file:
+            # Read audio data
+            audio_data = wav_file.readframes(wav_file.getnframes())
+            # Convert to numpy array (int16)
+            audio_np = np.frombuffer(audio_data, dtype=np.int16)
+            # Convert to float32 in range [-1, 1]
+            audio_float = audio_np.astype(np.float32) / 32768.0
+        
+        # Transcribe the numpy array directly
         segments_list, info = model.transcribe(
-            str(wav_path),
+            audio_float,
             language=language if language else None,
             beam_size=5
         )
