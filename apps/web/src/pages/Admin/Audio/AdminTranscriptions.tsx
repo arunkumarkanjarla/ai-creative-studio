@@ -335,7 +335,7 @@ export default function AdminTranscriptions() {
                       {expandedId === item.id ? (
                         <div>
                           <div style={{ fontSize: "12px", marginBottom: "4px", whiteSpace: "pre-wrap" }}>
-                            {item.full_text}
+                            {item.full_text || "(empty transcript)"}
                           </div>
                           <button
                             className="secondary-button"
@@ -347,8 +347,8 @@ export default function AdminTranscriptions() {
                         </div>
                       ) : (
                         <div>
-                          <div style={{ fontSize: "12px" }}>{item.text_preview}</div>
-                          {item.text_preview !== item.full_text && (
+                          <div style={{ fontSize: "12px" }}>{item.text_preview || "(empty)"}</div>
+                          {item.full_text && (
                             <button
                               className="secondary-button"
                               style={{ padding: "2px 6px", fontSize: "10px", marginTop: "4px" }}
