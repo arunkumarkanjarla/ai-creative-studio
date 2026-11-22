@@ -317,7 +317,7 @@ async def generate_tts(
         return {
             "id": generation.id,
             "status": "completed",
-            "file_url": f"/audio/download/{generation.id}",
+            "file_url": f"/api/v1/audio/download/{generation.id}",
             "file_size": file_size,
             "duration": estimated_duration,
             "message": "Audio generated successfully"

@@ -76,12 +76,21 @@ export default function AudioStudio() {
   const audioRef = useRef<HTMLAudioElement>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentAudioUrl, setCurrentAudioUrl] = useState<string>("");
+  
+  // Blob URL cache for authenticated media
+  const blobUrlCache = useRef<Map<string, string>>(new Map());
 
   useEffect(() => {
     loadVoices();
     if (mode === "history") {
       loadHistory();
     }
+    
+    // Cleanup blob URLs on unmount
+    return () => {
+      blobUrlCache.current.forEach(url => URL.revokeObjectURL(url));
+      blobUrlCache.current.clear();
+    };
   }, [mode]);
 
   const loadVoices = async () => {
@@ -177,17 +186,71 @@ export default function AudioStudio() {
     }
   }, [historyType]);
 
-  const playAudio = (url: string) => {
+  // Fetch authenticated media and return blob URL
+  const fetchAuthenticatedMedia = async (url: string): Promise<string> => {
+    // Check cache first
+    if (blobUrlCache.current.has(url)) {
+      return blobUrlCache.current.get(url)!;
+    }
+
+    try {
+      const token = localStorage.getItem("access_token");
+      const apiUrl = "http://localhost:8000"; // Backend URL
+      const response = await fetch(`${apiUrl}${url}`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to fetch media: ${response.statusText}`);
+      }
+
+      const blob = await response.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      
+      // Cache the blob URL
+      blobUrlCache.current.set(url, blobUrl);
+      
+      return blobUrl;
+    } catch (error) {
+      console.error("Failed to fetch authenticated media:", error);
+      throw error;
+    }
+  };
+
+  const playAudio = async (url: string) => {
     if (audioRef.current) {
       if (currentAudioUrl === url && isPlaying) {
         audioRef.current.pause();
         setIsPlaying(false);
       } else {
-        audioRef.current.src = url.startsWith("http") ? url : `http://localhost:8000${url}`;
-        audioRef.current.play();
-        setCurrentAudioUrl(url);
-        setIsPlaying(true);
+        try {
+          const blobUrl = await fetchAuthenticatedMedia(url);
+          audioRef.current.src = blobUrl;
+          await audioRef.current.play();
+          setCurrentAudioUrl(url);
+          setIsPlaying(true);
+        } catch (error) {
+          console.error("Failed to play audio:", error);
+          alert("Failed to play audio. Please try again.");
+        }
       }
+    }
+  };
+
+  const downloadMedia = async (url: string, filename: string) => {
+    try {
+      const blobUrl = await fetchAuthenticatedMedia(url);
+      const a = document.createElement("a");
+      a.href = blobUrl;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    } catch (error) {
+      console.error("Failed to download media:", error);
+      alert("Failed to download file. Please try again.");
     }
   };
 
@@ -329,13 +392,12 @@ export default function AudioStudio() {
                   >
                     <Play size={16} /> Play
                   </button>
-                  <a 
-                    href={`http://localhost:8000${generatedAudio}`}
-                    download
+                  <button 
                     className="secondary-button"
+                    onClick={() => downloadMedia(generatedAudio, `tts_audio.${outputFormat}`)}
                   >
                     <Download size={16} /> Download
-                  </a>
+                  </button>
                 </div>
               </div>
             )}
@@ -428,20 +490,18 @@ export default function AudioStudio() {
                 {transcriptResult.text}
               </div>
               <div style={{ display: "flex", gap: "12px", marginTop: "16px" }}>
-                <a 
-                  href={`http://localhost:8000${transcriptResult.txt_url}`}
-                  download
+                <button 
                   className="secondary-button"
+                  onClick={() => downloadMedia(transcriptResult.txt_url, "transcript.txt")}
                 >
                   <FileText size={16} /> Download TXT
-                </a>
-                <a 
-                  href={`http://localhost:8000${transcriptResult.srt_url}`}
-                  download
+                </button>
+                <button 
                   className="secondary-button"
+                  onClick={() => downloadMedia(transcriptResult.srt_url, "transcript.srt")}
                 >
                   <FileText size={16} /> Download SRT
-                </a>
+                </button>
               </div>
             </div>
           )}
@@ -486,14 +546,13 @@ export default function AudioStudio() {
                       >
                         {currentAudioUrl === item.download_url && isPlaying ? <Pause size={18} /> : <Play size={18} />}
                       </button>
-                      <a 
-                        href={`http://localhost:8000${item.download_url}`}
-                        download
+                      <button 
                         className="icon-button"
+                        onClick={() => downloadMedia(item.download_url, `tts_${item.id}.mp3`)}
                         title="Download"
                       >
                         <Download size={18} />
-                      </a>
+                      </button>
                       <button 
                         className="icon-button"
                         onClick={() => deleteItem(item.id, "tts")}
@@ -520,14 +579,13 @@ export default function AudioStudio() {
                       </div>
                     </div>
                     <div className="history-actions">
-                      <a 
-                        href={`http://localhost:8000${item.txt_url}`}
-                        download
+                      <button 
                         className="icon-button"
+                        onClick={() => downloadMedia(item.txt_url, `transcript_${item.id}.txt`)}
                         title="Download TXT"
                       >
                         <FileText size={18} />
-                      </a>
+                      </button>
                       <button 
                         className="icon-button"
                         onClick={() => deleteItem(item.id, "stt")}
