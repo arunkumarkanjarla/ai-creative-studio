@@ -208,12 +208,71 @@ def _cover(img: Image.Image, width: int, height: int) -> Image.Image:
     return resized.crop((left, top, left + width, top + height))
 
 
+def _clean_cutout_edges(rgba: Image.Image) -> Image.Image:
+    """
+    Remove gray/white halo around hair: erode subject alpha, decontaminate fringe
+    color, then feather.
+    """
+    from scipy import ndimage
+
+    arr = np.asarray(rgba.convert("RGBA")).copy()
+    rgb = arr[:, :, :3].astype(np.float32)
+    alpha = arr[:, :, 3].astype(np.float32) / 255.0
+
+    subject = alpha > 0.45
+    # Pull matte inward past fringe
+    eroded = ndimage.binary_erosion(subject, iterations=3)
+    interior = ndimage.binary_erosion(eroded, iterations=4)
+    if interior.any():
+        for c in range(3):
+            ch = np.where(interior, rgb[:, :, c], 0.0)
+            blur = ndimage.gaussian_filter(ch, sigma=2.5)
+            weight = ndimage.gaussian_filter(interior.astype(np.float32), sigma=2.5)
+            filled = np.where(weight > 1e-3, blur / np.maximum(weight, 1e-3), rgb[:, :, c])
+            fringe = (alpha > 0.03) & (~interior)
+            rgb[:, :, c] = np.where(fringe, 0.35 * rgb[:, :, c] + 0.65 * filled, rgb[:, :, c])
+
+    # Kill bright / gray fringe aggressively
+    brightness = rgb.mean(axis=2)
+    chroma = rgb.max(axis=2) - rgb.min(axis=2)
+    halo = (alpha > 0.02) & (alpha < 0.97) & ((brightness > 150) | ((brightness > 120) & (chroma < 25)))
+    alpha = np.where(halo, 0.0, alpha)
+    alpha = np.where(eroded, alpha, 0.0)
+
+    dist = ndimage.distance_transform_edt(alpha > 0.25)
+    feather = np.clip(dist / 2.2, 0.0, 1.0)
+    feather = ndimage.gaussian_filter(feather.astype(np.float32), sigma=0.55)
+    alpha = np.clip(np.minimum(alpha, feather), 0.0, 1.0)
+
+    arr[:, :, :3] = np.clip(rgb, 0, 255).astype(np.uint8)
+    arr[:, :, 3] = np.clip(alpha * 255.0, 0, 255).astype(np.uint8)
+    return Image.fromarray(arr, "RGBA")
+
+
+def _trim_transparent(rgba: Image.Image, pad: int = 4) -> Image.Image:
+    """Crop to the opaque subject bbox so layout sizes match the person, not empty canvas."""
+    arr = np.asarray(rgba.convert("RGBA"))
+    alpha = arr[:, :, 3]
+    ys, xs = np.where(alpha > 12)
+    if len(xs) < 8:
+        return rgba
+    x0, x1 = max(0, xs.min() - pad), min(arr.shape[1], xs.max() + pad + 1)
+    y0, y1 = max(0, ys.min() - pad), min(arr.shape[0], ys.max() + pad + 1)
+    return Image.fromarray(arr[y0:y1, x0:x1], "RGBA")
+
+
 def cutout_character(image_path: Path, cache_key: str | None = None) -> Image.Image:
     """
     Remove background from character portrait; return RGBA with transparent BG.
     Results cached under generated_videos/cutout_cache.
     """
-    key = cache_key or hashlib.sha1(str(image_path).encode() + str(image_path.stat().st_mtime).encode()).hexdigest()
+    raw = (
+        cache_key
+        or hashlib.sha1(
+            (str(image_path) + str(image_path.stat().st_mtime) + "|edge_v4").encode()
+        ).hexdigest()
+    )
+    key = raw
     cache_path = CUTOUT_CACHE_DIR / f"{key}.png"
     if cache_path.exists():
         return Image.open(cache_path).convert("RGBA")
@@ -242,6 +301,8 @@ def cutout_character(image_path: Path, cache_key: str | None = None) -> Image.Im
         except Exception:
             out = src
 
+    out = _clean_cutout_edges(out)
+    out = _trim_transparent(out)
     out.save(cache_path)
     return out
 
@@ -268,30 +329,29 @@ def camera_transform(
 ) -> tuple[float, float, float]:
     """
     Return (zoom, offset_x_frac, offset_y_frac) for background sampling.
-    zoom > 1 = push in.
+    zoom > 1 = push in. Offsets kept mild so characters stay framed.
     """
+    del width, height
     # Subtle always-on breathing
-    breath = 1.0 + 0.008 * math.sin(t * math.pi * 2)
-    shake_x = shake_y = 0.0
+    breath = 1.0 + 0.006 * math.sin(t * math.pi * 2)
     if preset == "slow_push":
-        zoom = (1.05 + 0.12 * t) * breath
-        ox, oy = 0.02 * t, -0.01 * t
+        zoom = (1.04 + 0.08 * t) * breath
+        ox, oy = 0.012 * t, -0.008 * t
     elif preset == "pull_out":
-        zoom = (1.18 - 0.12 * t) * breath
-        ox, oy = -0.02 * t, 0.01 * t
+        zoom = (1.12 - 0.08 * t) * breath
+        ox, oy = -0.012 * t, 0.008 * t
     elif preset == "pan":
-        zoom = 1.1 * breath
-        ox, oy = -0.08 + 0.16 * t, 0.02 * math.sin(t * math.pi)
+        zoom = 1.06 * breath
+        ox, oy = -0.04 + 0.08 * t, 0.01 * math.sin(t * math.pi)
     elif preset == "dolly":
-        zoom = (1.06 + 0.1 * t) * breath
-        ox, oy = 0.05 * math.sin(t * math.pi), -0.04 * t
+        zoom = (1.04 + 0.07 * t) * breath
+        ox, oy = 0.025 * math.sin(t * math.pi), -0.02 * t
     elif preset == "handheld":
-        zoom = (1.08 + 0.04 * math.sin(t * 6)) * breath
-        shake_x = 0.012 * math.sin(t * 17.3)
-        shake_y = 0.01 * math.cos(t * 13.1)
-        ox, oy = shake_x, shake_y
+        zoom = (1.05 + 0.02 * math.sin(t * 6)) * breath
+        ox = 0.006 * math.sin(t * 17.3)
+        oy = 0.005 * math.cos(t * 13.1)
     else:
-        zoom = 1.08 * breath
+        zoom = 1.05 * breath
         ox, oy = 0.0, 0.0
     return zoom, ox, oy
 
@@ -311,6 +371,16 @@ def sample_zoomed(img: Image.Image, width: int, height: int, zoom: float, ox: fl
     return pad.crop((x, y, x + crop_w, y + crop_h)).resize((width, height), Image.Resampling.BILINEAR)
 
 
+def _safe_margins(width: int, height: int) -> tuple[int, int, int, int]:
+    """left, top, right, bottom safe inset — keeps head/shoulders clear of edges/subs."""
+    return (
+        int(width * 0.05),
+        int(height * 0.08),
+        int(width * 0.05),
+        int(height * 0.20),
+    )
+
+
 def character_layout(
     mode: str,
     width: int,
@@ -321,51 +391,113 @@ def character_layout(
     total: int,
     keywords: set[str],
     t: float,
-) -> tuple[int, int, int]:
-    """Return (x, y, target_height) for character placement."""
+    cutout_aspect: float = 0.75,
+) -> tuple[int, int, int, int]:
+    """
+    Return (x, y, target_width, target_height) for character placement.
+
+    Two-shots: side-by-side, ~40–48% frame width each, no face overlap.
+    Close-ups: centered speaker with full head + shoulders in the safe area.
+    """
+    ml, mt, mr, mb = _safe_margins(width, height)
+    safe_h = height - mt - mb
+    sway = int(3 * math.sin(t * math.pi * 2 + index))
+
+    def size_from_width_frac(frac: float, *, pair: bool = False) -> tuple[int, int]:
+        tw = int(width * frac)
+        # Two-shot hard cap: both characters + gap must fit in safe width
+        if pair or total >= 2:
+            min_gap = int(width * 0.06)
+            tw = min(tw, (width - ml - mr - min_gap) // 2)
+            tw = min(tw, int(width * 0.46))
+        th = int(tw / max(0.45, min(cutout_aspect, 1.15)))
+        min_h = int(safe_h * 0.48)
+        max_h = int(safe_h * 0.70)
+        if th < min_h:
+            th = min_h
+            tw = int(th * max(0.45, min(cutout_aspect, 1.15)))
+            if pair or total >= 2:
+                min_gap = int(width * 0.06)
+                tw = min(tw, (width - ml - mr - min_gap) // 2, int(width * 0.46))
+                th = int(tw / max(0.45, min(cutout_aspect, 1.15)))
+        if th > max_h:
+            th = max_h
+            tw = int(th * max(0.45, min(cutout_aspect, 1.15)))
+            if pair or total >= 2:
+                min_gap = int(width * 0.06)
+                tw = min(tw, (width - ml - mr - min_gap) // 2, int(width * 0.46))
+        return tw, th
+
+    def place_at(cx: float, tw: int, th: int, y_nudge: int = 0) -> tuple[int, int, int, int]:
+        x = int(cx - tw / 2)
+        # Sit above subtitle band with head well inside the top safe margin
+        y = int(height * 0.78 - th) + y_nudge + sway
+        x = max(ml, min(x, width - mr - tw))
+        y = max(mt, min(y, height - mb - th))
+        return x, y, tw, th
+
+    # Close-up: speaker centered — keep full head inside top safe margin
     if mode == "closeup" and is_speaker:
-        th = int(height * 0.92)
-        x = (width - int(th * 0.7)) // 2
-        y = height - th + int(8 * math.sin(t * math.pi * 2))
-        return x, y, th
+        tw = int(width * 0.46)
+        th = int(tw / max(0.45, min(cutout_aspect, 1.15)))
+        th = min(th, int(safe_h * 0.62))
+        tw = int(th * max(0.45, min(cutout_aspect, 1.15)))
+        return place_at(width * 0.5, tw, th)
 
     if "hug" in keywords or "embrace" in keywords:
-        # Move together toward center
-        gather = min(1.0, t * 1.2)
-        spacing = int(width * (0.22 - 0.1 * gather))
-        th = int(height * 0.72)
-        cx = width // 2
+        gather = min(1.0, 0.25 + 0.45 * t)
+        frac = 0.44 if is_speaker else 0.40
+        tw, th = size_from_width_frac(frac, pair=True)
         if total == 1:
-            return cx - int(th * 0.35), height - th, th
-        side = -1 if index == 0 else 1
-        x = cx + side * spacing - int(th * 0.35)
-        return x, height - th, th
+            return place_at(width * 0.5, tw, th)
+        min_gap = int(width * 0.06)
+        # Fixed side anchors that guarantee gap
+        left_cx = ml + tw / 2
+        right_cx = width - mr - tw / 2
+        # Pull slightly toward center but never closer than min_gap
+        max_left = width * 0.5 - (tw / 2 + min_gap / 2)
+        min_right = width * 0.5 + (tw / 2 + min_gap / 2)
+        if index == 0:
+            cx = left_cx + (max_left - left_cx) * gather
+        else:
+            cx = right_cx + (min_right - right_cx) * gather
+        return place_at(cx, tw, th)
 
     if "walk" in keywords:
-        # Slide in from side
-        th = int(height * 0.7)
-        enter = min(1.0, t * 1.5)
-        start = -int(th * 0.8) if index % 2 == 0 else width
-        end = int(width * (0.15 if index % 2 == 0 else 0.55))
-        x = int(start + (end - start) * enter)
-        return x, height - th, th
+        frac = 0.45 if is_speaker else 0.40
+        tw, th = size_from_width_frac(frac, pair=True)
+        enter = min(1.0, 0.2 + t * 1.15)
+        end_cx = ml + tw / 2 if index == 0 else width - mr - tw / 2
+        # Keep partial character visible during entrance
+        if index == 0:
+            start_cx = ml + tw * 0.35
+        else:
+            start_cx = width - mr - tw * 0.35
+        cx = start_cx + (end_cx - start_cx) * enter
+        return place_at(cx, tw, th)
 
     if "celebrate" in keywords:
-        th = int(height * (0.68 + 0.04 * abs(math.sin(t * math.pi * 4))))
-        bounce = int(18 * abs(math.sin(t * math.pi * 4)))
-        x = int(width * (0.12 + 0.4 * index))
-        return x, height - th - bounce, th
+        bounce = int(8 * abs(math.sin(t * math.pi * 4)))
+        frac = 0.45 if is_speaker else 0.40
+        tw, th = size_from_width_frac(frac, pair=True)
+        cx = ml + tw / 2 if index == 0 else width - mr - tw / 2
+        return place_at(cx, tw, th, y_nudge=-bounce)
 
-    # Default two-shot / reaction
-    if is_speaker:
-        th = int(height * 0.78)
-        x = int(width * 0.18)
+    if total <= 1:
+        tw, th = size_from_width_frac(0.48 if is_speaker else 0.44, pair=False)
+        return place_at(width * 0.5, tw, th)
+
+    # Default two-shot: speaker slightly larger / forward
+    frac = 0.46 if is_speaker else 0.40
+    tw, th = size_from_width_frac(frac, pair=True)
+    cx = ml + tw / 2 if is_speaker else width - mr - tw / 2
+    # If listener somehow index 0 without is_speaker — keep right
+    if not is_speaker:
+        cx = width - mr - tw / 2
     else:
-        th = int(height * 0.55)
-        x = int(width * 0.55)
-    sway = int(6 * math.sin(t * math.pi * 2 + index))
-    tilt_y = height - th + sway
-    return x, tilt_y, th
+        cx = ml + tw / 2
+    y_nudge = -8 if is_speaker else 12
+    return place_at(cx, tw, th, y_nudge=y_nudge)
 
 
 def paste_character(
@@ -375,6 +507,7 @@ def paste_character(
     y: int,
     target_height: int,
     *,
+    target_width: int | None = None,
     amplitude: float = 0.0,
     blink: float = 0.0,
     head_tilt: float = 0.0,
@@ -385,41 +518,40 @@ def paste_character(
         canvas = canvas.convert("RGBA")
 
     aspect = cutout.width / max(1, cutout.height)
-    th = max(8, target_height)
-    tw = max(8, int(th * aspect))
-    char = cutout.resize((tw, th), Image.Resampling.BILINEAR)
+    if target_width is not None:
+        tw = max(8, target_width)
+        th = max(8, int(tw / max(0.35, aspect)))
+    else:
+        th = max(8, target_height)
+        tw = max(8, int(th * aspect))
+    char = cutout.resize((tw, th), Image.Resampling.LANCZOS)
 
     if abs(head_tilt) > 0.1:
         char = char.rotate(head_tilt, resample=Image.Resampling.BILINEAR, expand=True)
 
-    if speaking and amplitude > 0.02:
+    if speaking and amplitude > 0.05:
         _draw_mouth_rgba(char, amplitude)
-    if blink > 0.5:
-        _draw_blink(char)
+    # Intentionally skip hard blink rectangles — they read as face artifacts.
 
-    canvas.paste(char, (int(x), int(y)), char)
+    # Final clamp — keep head/shoulders inside the frame
+    cw, ch = canvas.size
+    x = max(0, min(int(x), max(0, cw - char.width)))
+    y = max(0, min(int(y), max(0, ch - int(char.height * 0.92))))
+    canvas.paste(char, (x, y), char)
     return canvas
 
 
 def _draw_mouth_rgba(char: Image.Image, amplitude: float) -> None:
+    """Very subtle lip cue — keep small so it doesn't look like a sticker."""
     w, h = char.size
     draw = ImageDraw.Draw(char, "RGBA")
-    cx, cy = int(w * 0.5), int(h * 0.70)
-    mouth_w = int(w * 0.07)
-    mouth_h = max(2, int(h * 0.008 + amplitude * h * 0.035))
+    cx, cy = int(w * 0.5), int(h * 0.72)
+    mouth_w = max(3, int(w * 0.045))
+    mouth_h = max(1, int(h * 0.004 + amplitude * h * 0.018))
     draw.ellipse(
         [cx - mouth_w, cy - mouth_h, cx + mouth_w, cy + mouth_h],
-        fill=(50, 15, 15, 200),
+        fill=(60, 20, 25, 110),
     )
-
-
-def _draw_blink(char: Image.Image) -> None:
-    w, h = char.size
-    draw = ImageDraw.Draw(char, "RGBA")
-    ey = int(h * 0.42)
-    for ex in (0.38, 0.62):
-        cx = int(w * ex)
-        draw.rectangle([cx - int(w * 0.05), ey - 2, cx + int(w * 0.05), ey + 3], fill=(30, 20, 20, 180))
 
 
 def draw_particles(frame: Image.Image, t: float, kind: str, seed: int = 0) -> None:
@@ -427,17 +559,17 @@ def draw_particles(frame: Image.Image, t: float, kind: str, seed: int = 0) -> No
     draw = ImageDraw.Draw(frame, "RGBA")
     w, h = frame.size
     if kind == "confetti":
-        for i in range(40):
-            x = int((rng.random() * w + t * w * 0.2 * ((i % 3) - 1)) % w)
-            y = int((rng.random() * h * 0.6 + t * h * (0.3 + 0.2 * (i % 5) / 5)) % h)
-            color = rng.choice([(255, 80, 120, 200), (255, 200, 60, 200), (80, 180, 255, 200), (120, 255, 140, 200)])
-            draw.rectangle([x, y, x + 5, y + 8], fill=color)
+        # Keep particles in the upper sky — never across faces
+        for i in range(36):
+            x = int((rng.random() * w + t * w * 0.15 * ((i % 3) - 1)) % w)
+            y = int(rng.random() * h * 0.42)
+            color = rng.choice(
+                [(255, 80, 120, 180), (255, 200, 60, 180), (80, 180, 255, 180), (120, 255, 140, 180)]
+            )
+            draw.rectangle([x, y, x + 4, y + 7], fill=color)
     elif kind == "waves":
-        for i in range(5):
-            y = int(h * (0.62 + 0.06 * i)) + int(6 * math.sin(t * math.pi * 2 + i))
-            for x in range(0, w, 8):
-                yy = y + int(4 * math.sin(x / 40 + t * 6 + i))
-                draw.ellipse([x, yy, x + 10, yy + 4], fill=(200, 230, 255, 40))
+        # No foreground stroke lines — sea motion is handled by background shimmer.
+        return
     elif kind == "lamp_flicker":
         flicker = 0.7 + 0.3 * abs(math.sin(t * 25 + math.sin(t * 7)))
         overlay = Image.new("RGBA", (w, h), (0, 0, 0, 0))
@@ -446,6 +578,29 @@ def draw_particles(frame: Image.Image, t: float, kind: str, seed: int = 0) -> No
         r = int(w * 0.35 * flicker)
         od.ellipse([gx - r, gy - r, gx + r, gy + r], fill=(255, 180, 80, int(35 * flicker)))
         frame.alpha_composite(overlay)
+
+
+def apply_sea_shimmer(bg: Image.Image, t: float) -> Image.Image:
+    """
+    Subtle water motion in the lower background only — never draws strokes over subjects.
+    """
+    arr = np.asarray(bg.convert("RGB")).astype(np.float32)
+    h, w, _ = arr.shape
+    y0 = int(h * 0.58)
+    band = arr[y0:, :, :]
+    yy = np.arange(band.shape[0])[:, None]
+    xx = np.arange(band.shape[1])[None, :]
+    ripple = 4.0 * np.sin(xx / 28.0 + t * 5.0) * np.sin(yy / 18.0 + t * 3.0)
+    # Horizontal pixel shift via roll per row (cheap fake refraction)
+    out = band.copy()
+    for i in range(0, band.shape[0], 2):
+        shift = int(ripple[i, band.shape[1] // 2])
+        if shift:
+            out[i] = np.roll(band[i], shift, axis=0)
+    # Soft blue lift
+    out[:, :, 2] = np.clip(out[:, :, 2] + 6 + 4 * np.sin(t * 4), 0, 255)
+    arr[y0:] = out
+    return Image.fromarray(arr.astype(np.uint8), "RGB")
 
 
 def apply_desaturate(frame: Image.Image, amount: float) -> Image.Image:

@@ -17,7 +17,7 @@ import wave
 from pathlib import Path
 from typing import Any, Optional
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageFont
 
 from app.services.video.categories import resolve_dimensions
 from app.services.video.engines.base import (
@@ -35,6 +35,7 @@ from app.services.video.engines.local_cinematics import (
     cutout_character,
     detect_keywords,
     draw_particles,
+    apply_sea_shimmer,
     light_leak,
     paste_character,
     resolve_scene_background,
@@ -74,14 +75,28 @@ def _probe_duration(path: Path) -> float:
         return 0.0
 
 
+def _fonts_dir() -> Path:
+    bundled = Path(__file__).resolve().parents[3] / "assets" / "fonts"
+    if (bundled / "NotoSansTelugu-Regular.ttf").exists():
+        return bundled
+    win = Path("C:/Windows/Fonts")
+    if (win / "Nirmala.ttf").exists() or (win / "nirmala.ttf").exists():
+        return win
+    return bundled
+
+
 def _load_font(size: int) -> ImageFont.ImageFont:
+    fonts = _fonts_dir()
     for candidate in (
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-        "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
-        "C:/Windows/Fonts/arial.ttf",
+        fonts / "NotoSansTelugu-Regular.ttf",
+        fonts / "Nirmala.ttf",
+        Path("C:/Windows/Fonts/Nirmala.ttf"),
+        Path("/usr/share/fonts/truetype/noto/NotoSansTelugu-Regular.ttf"),
+        Path("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"),
+        Path("C:/Windows/Fonts/arial.ttf"),
     ):
-        if Path(candidate).exists():
-            return ImageFont.truetype(candidate, size=size)
+        if candidate.exists():
+            return ImageFont.truetype(str(candidate), size=size)
     return ImageFont.load_default()
 
 
@@ -152,21 +167,62 @@ def _mp3_to_wav(mp3: Path, wav: Path) -> None:
     )
 
 
-def _write_srt(path: Path, cues: list[tuple[float, float, str]]) -> None:
-    def ts(seconds: float) -> str:
-        ms = int(round(seconds * 1000))
-        h, rem = divmod(ms, 3600_000)
-        m, rem = divmod(rem, 60_000)
-        s, milli = divmod(rem, 1000)
-        return f"{h:02d}:{m:02d}:{s:02d},{milli:03d}"
+def _ass_ts(seconds: float) -> str:
+    cs = int(round(max(0.0, seconds) * 100))
+    h, rem = divmod(cs, 3600_00)
+    m, rem = divmod(rem, 60_00)
+    s, c = divmod(rem, 100)
+    return f"{h:d}:{m:02d}:{s:02d}.{c:02d}"
 
-    lines = []
-    for i, (start, end, text) in enumerate(cues, start=1):
-        lines.append(str(i))
-        lines.append(f"{ts(start)} --> {ts(end)}")
-        lines.append(text.strip() or "...")
-        lines.append("")
-    path.write_text("\n".join(lines), encoding="utf-8")
+
+def _write_ass(
+    path: Path,
+    cues: list[tuple[float, float, str, str]],
+    *,
+    play_res_x: int,
+    play_res_y: int,
+) -> None:
+    """
+    ASS with Noto Sans Telugu + semi-transparent box.
+    cues: (start, end, dialogue, speaker_name)
+    """
+    # BorderStyle=3 → opaque box; BackColour &HAABBGGRR (AA=90 ≈ ~56% black)
+    # Outline>0 helps libass draw the box reliably. Speaker uses Noto Sans for Latin.
+    header = f"""[Script Info]
+ScriptType: v4.00+
+PlayResX: {play_res_x}
+PlayResY: {play_res_y}
+WrapStyle: 0
+ScaledBorderAndShadow: yes
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Dialogue,Noto Sans Telugu,58,&H00FFFFFF,&H000000FF,&H64000000,&H90000000,-1,0,0,0,100,100,0,0,3,8,0,2,40,40,110,1
+Style: Speaker,Noto Sans,34,&H00FFFFFF,&H000000FF,&H64000000,&H90000000,-1,0,0,0,100,100,0,0,3,6,0,2,40,40,190,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+"""
+    events: list[str] = []
+    for start, end, text, speaker in cues:
+        body = (text or "").replace("\n", " ").strip() or "..."
+        body = body.replace("\\", "\\\\").replace("{", "\\{").replace("}", "\\}")
+        # Put speaker + dialogue in one event so the box reads as a unit
+        if speaker:
+            sp = speaker.replace("\\", "\\\\").replace("{", "\\{").replace("}", "\\}")
+            # {\fnNoto Sans\fs34}name{\fnNoto Sans Telugu\fs58}\N dialogue
+            line = (
+                f"{{\\fnNoto Sans\\fs34\\b1}}{sp}"
+                f"{{\\fnNoto Sans Telugu\\fs58\\b0\\r}}\\N{body}"
+            )
+            events.append(
+                f"Dialogue: 0,{_ass_ts(start)},{_ass_ts(end)},Dialogue,,0,0,0,,{line}"
+            )
+        else:
+            events.append(
+                f"Dialogue: 0,{_ass_ts(start)},{_ass_ts(end)},Dialogue,,0,0,0,,{body}"
+            )
+    path.write_text(header + "\n".join(events) + "\n", encoding="utf-8")
 
 
 def _make_bg_pad(path: Path, duration: float) -> None:
@@ -286,20 +342,84 @@ def _encode_frames_to_clip(
         )
 
 
-def _name_label(frame: Image.Image, name: str) -> None:
-    if not name:
-        return
-    draw = ImageDraw.Draw(frame)
+def _draw_subtitle_box(
+    frame: Image.Image,
+    text: str,
+    speaker: str,
+    *,
+    font_dialogue: ImageFont.ImageFont,
+    font_speaker: ImageFont.ImageFont,
+) -> None:
+    """
+    Draw speaker + Telugu dialogue with a semi-transparent box.
+    Uses Pillow raqm shaping when available for correct Telugu conjuncts.
+    """
+    from PIL import ImageDraw
+
     w, h = frame.size
-    font = _load_font(max(14, w // 40))
-    tw = draw.textlength(name, font=font)
-    pad = 8
-    bx0, by0 = 24, h - 56
-    draw.rectangle(
-        [bx0, by0, bx0 + tw + pad * 2, by0 + font.size + pad],
-        fill=(0, 0, 0),
+    probe = ImageDraw.Draw(frame)
+    body = (text or "").strip()
+    if not body and not speaker:
+        return
+
+    pad_x, pad_y = 24, 16
+    gap = 10
+    max_text_w = int(w * 0.86)
+
+    def wrap(s: str, font: ImageFont.ImageFont) -> list[str]:
+        words = s.split()
+        if not words:
+            return []
+        lines: list[str] = []
+        cur = words[0]
+        for word in words[1:]:
+            trial = f"{cur} {word}"
+            bbox = probe.textbbox((0, 0), trial, font=font)
+            if bbox[2] - bbox[0] <= max_text_w:
+                cur = trial
+            else:
+                lines.append(cur)
+                cur = word
+        lines.append(cur)
+        return lines
+
+    line_specs: list[tuple[str, ImageFont.ImageFont]] = []
+    if speaker:
+        line_specs.append((speaker, font_speaker))
+    for ln in wrap(body, font_dialogue)[:3]:
+        line_specs.append((ln, font_dialogue))
+    if not line_specs:
+        return
+
+    heights: list[int] = []
+    widths: list[int] = []
+    for ln, font in line_specs:
+        bbox = probe.textbbox((0, 0), ln, font=font)
+        widths.append(bbox[2] - bbox[0])
+        heights.append(max(1, bbox[3] - bbox[1]))
+
+    box_w = min(w - 24, max(widths) + pad_x * 2)
+    box_h = sum(heights) + gap * (len(heights) - 1) + pad_y * 2
+    box_x0 = (w - box_w) // 2
+    box_y1 = h - int(h * 0.055)
+    box_y0 = max(0, box_y1 - box_h)
+
+    base = frame.convert("RGBA")
+    overlay = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    ImageDraw.Draw(overlay).rounded_rectangle(
+        [box_x0, box_y0, box_x0 + box_w, box_y1],
+        radius=16,
+        fill=(0, 0, 0, 170),
     )
-    draw.text((bx0 + pad, by0 + pad // 2), name, fill=(255, 255, 255), font=font)
+    composed = Image.alpha_composite(base, overlay).convert("RGB")
+    frame.paste(composed)
+
+    draw = ImageDraw.Draw(frame)
+    y = box_y0 + pad_y
+    for (ln, font), lh, lw in zip(line_specs, heights, widths):
+        x = box_x0 + (box_w - lw) // 2
+        draw.text((x, y), ln, font=font, fill=(255, 255, 255))
+        y += lh + gap
 
 
 class LocalEngine(VideoEngine):
@@ -371,6 +491,25 @@ class LocalEngine(VideoEngine):
         category = (project.category or "").lower()
         use_letterbox = category in ("drama", "movie_short", "web_series", "documentary")
         audio_mode = (project.audio_mode or "dialogue").lower()
+        burn_subs = bool(project.subtitles)
+        fonts = _fonts_dir()
+        telugu_bold = fonts / "NotoSansTelugu-Bold.ttf"
+        telugu_reg = fonts / "NotoSansTelugu-Regular.ttf"
+        latin_bold = fonts / "NotoSans-Bold.ttf"
+        try:
+            font_dialogue = ImageFont.truetype(
+                str(telugu_bold if telugu_bold.exists() else telugu_reg),
+                max(48, width // 14),
+            )
+        except Exception:
+            font_dialogue = _load_font(max(48, width // 14))
+        try:
+            font_speaker = ImageFont.truetype(
+                str(latin_bold if latin_bold.exists() else telugu_reg),
+                max(34, width // 20),
+            )
+        except Exception:
+            font_speaker = _load_font(max(34, width // 20))
         # Drama always gets a ducked music bed unless silent
         want_music = audio_mode in (
             "background_music",
@@ -380,7 +519,8 @@ class LocalEngine(VideoEngine):
         ) or (category in ("drama", "movie_short", "music_video") and audio_mode != "silent")
 
         scene_clips: list[Path] = []
-        srt_cues: list[tuple[float, float, str]] = []
+        # (start, end, dialogue, speaker)
+        ass_cues: list[tuple[float, float, str, str]] = []
         timeline = 0.0
         transitions = ("crossfade", "fade_black", "slide")
 
@@ -472,55 +612,79 @@ class LocalEngine(VideoEngine):
                     t = fi / max(1, frame_count - 1)
                     zoom, ox, oy = camera_transform(t, motion, width, height)
                     # Parallax: background moves slower than characters
-                    bg_frame = sample_zoomed(bg, width, height, zoom * 0.92, ox * 0.55, oy * 0.55)
+                    bg_src = bg
+                    if "sea" in keywords or "sunset" in keywords:
+                        bg_src = apply_sea_shimmer(bg, t)
+                    bg_frame = sample_zoomed(bg_src, width, height, zoom * 0.92, ox * 0.55, oy * 0.55)
                     canvas = bg_frame.convert("RGBA")
+
+                    # Lamp glow on BACKGROUND only (behind characters)
+                    if "night" in keywords:
+                        draw_particles(canvas, t, "lamp_flicker", seed=idx)
 
                     amp = envelope[min(fi, len(envelope) - 1)] if envelope else 0.0
                     # Close-up on speaker during louder dialogue beats
-                    mode = "closeup" if amp > 0.18 else "two_shot"
+                    mode = "closeup" if amp > 0.22 else "two_shot"
 
-                    for ci, ch in enumerate(scene_chars):
+                    # Draw listener first, speaker last (on top).
+                    # Close-ups: speaker only so faces never collide.
+                    ordered = sorted(
+                        scene_chars,
+                        key=lambda c: 1 if c.name.lower() == (speaker or "").lower() else 0,
+                    )
+                    if mode == "closeup":
+                        ordered = [
+                            c
+                            for c in ordered
+                            if c.name.lower() == (speaker or "").lower()
+                        ] or ordered[-1:]
+                    for ci, ch in enumerate(ordered):
                         key = ch.name.lower()
                         cut = cutouts.get(key)
                         if cut is None:
                             continue
                         is_speaker = ch.name.lower() == (speaker or "").lower()
-                        x, y, th = character_layout(
+                        aspect = cut.width / max(1, cut.height)
+                        # Stable side index: speaker left (0), listener right (1)
+                        side_index = 0 if is_speaker else 1
+                        x, y, tw, th = character_layout(
                             mode,
                             width,
                             height,
                             is_speaker=is_speaker,
-                            index=ci,
+                            index=side_index,
                             total=len(scene_chars),
                             keywords=keywords,
                             t=t,
+                            cutout_aspect=aspect,
                         )
-                        # Character parallax (slightly faster than bg)
-                        x += int(ox * width * 0.35)
-                        y += int(oy * height * 0.25)
-                        # Breathing / sway already in layout; head tilt
-                        tilt = 2.5 * math.sin(t * math.pi * 2 + ci) if is_speaker else 1.2 * math.sin(t * math.pi + ci)
-                        blink = 1.0 if (fi % max(18, render_fps * 3) in (0, 1)) else 0.0
+                        # Tiny parallax only — never enough to push faces off-frame
+                        x += int(ox * width * 0.08)
+                        y += int(oy * height * 0.05)
+                        tilt = (
+                            1.2 * math.sin(t * math.pi * 2 + ci)
+                            if is_speaker
+                            else 0.6 * math.sin(t * math.pi + ci)
+                        )
                         canvas = paste_character(
                             canvas,
                             cut,
                             x,
                             y,
                             th,
+                            target_width=tw,
                             amplitude=amp if is_speaker else 0.0,
-                            blink=blink,
+                            blink=0.0,
                             head_tilt=tilt,
                             speaking=is_speaker and audio_mode != "silent",
                         )
 
-                    if "celebrate" in keywords:
-                        draw_particles(canvas, t, "confetti", seed=idx)
-                    if "sea" in keywords or "sunset" in keywords:
-                        draw_particles(canvas, t, "waves", seed=idx)
-                    if "night" in keywords:
-                        draw_particles(canvas, t, "lamp_flicker", seed=idx)
-
                     rgb = canvas.convert("RGB")
+                    # Confetti in the sky after RGB convert via temporary RGBA pass
+                    if "celebrate" in keywords:
+                        tmp = rgb.convert("RGBA")
+                        draw_particles(tmp, t, "confetti", seed=idx)
+                        rgb = tmp.convert("RGB")
                     if "sad" in keywords:
                         rgb = apply_desaturate(rgb, 0.35 + 0.15 * t)
                     if use_letterbox:
@@ -528,12 +692,16 @@ class LocalEngine(VideoEngine):
                     if idx % 3 == 2 and t > 0.7:
                         rgb = light_leak(rgb, t, strength=0.2)
 
-                    _name_label(rgb, speaker)
-                    yield rgb
+                    if burn_subs and dialogue:
+                        _draw_subtitle_box(
+                            rgb,
+                            dialogue[:200],
+                            speaker or "",
+                            font_dialogue=font_dialogue,
+                            font_speaker=font_speaker,
+                        )
 
-                    if fi % 12 == 0:
-                        # Cooperative yield for asyncio loop
-                        pass
+                    yield rgb
 
             clip_path = scene_dir / "clip.mp4"
             # Run frame encode in thread so edge-tts event loop stays responsive
@@ -555,7 +723,9 @@ class LocalEngine(VideoEngine):
             scene_clips.append(clip_path)
 
             if dialogue:
-                srt_cues.append((timeline, timeline + duration, dialogue[:200]))
+                ass_cues.append(
+                    (timeline, timeline + duration, dialogue[:200], speaker or "")
+                )
             timeline += duration
 
         # Normalize total duration toward target with a hold pad if slightly short
@@ -765,26 +935,30 @@ class LocalEngine(VideoEngine):
             )
 
         final = faded
-        if project.subtitles and srt_cues:
-            report(92, "Burning subtitles")
-            srt_path = work_dir / "subs.srt"
-            _write_srt(srt_path, srt_cues)
-            subtitled = work_dir / "subtitled.mp4"
-            srt_escaped = srt_path.resolve().as_posix().replace(":", "\\:")
-            _run(
-                [
-                    "ffmpeg",
-                    "-y",
-                    "-i",
-                    str(faded),
-                    "-vf",
-                    f"subtitles='{srt_escaped}':force_style='FontSize=18,PrimaryColour=&H00FFFFFF&,OutlineColour=&H00000000&,BorderStyle=3'",
-                    "-c:a",
-                    "copy",
-                    str(subtitled),
-                ]
+        # Subtitles are burned during frame render via Pillow+raqm (correct Telugu
+        # shaping). Also write ASS + string list for verification / external players.
+        if project.subtitles and ass_cues:
+            report(92, "Writing Telugu subtitle verification assets")
+            ass_path = work_dir / "subs.ass"
+            _write_ass(ass_path, ass_cues, play_res_x=width, play_res_y=height)
+            verify = work_dir / "subtitle_strings.txt"
+            verify.write_text(
+                "\n".join(f"{sp}: {tx}" for _, _, tx, sp in ass_cues),
+                encoding="utf-8",
             )
-            final = subtitled
+            # Reference still with Pillow raqm shaping for QA compare
+            try:
+                sample = Image.new("RGB", (width, min(280, height // 3)), (40, 30, 50))
+                _draw_subtitle_box(
+                    sample,
+                    ass_cues[0][2],
+                    ass_cues[0][3],
+                    font_dialogue=font_dialogue,
+                    font_speaker=font_speaker,
+                )
+                sample.save(work_dir / "subtitle_shape_ref.jpg", quality=92)
+            except Exception as exc:
+                print(f"[local_engine] subtitle ref skip: {exc}")
 
         out_ext = "webm" if (project.output_format or "mp4").lower() == "webm" else "mp4"
         output_path = work_dir / f"output.{out_ext}"

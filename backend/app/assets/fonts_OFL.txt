@@ -1,0 +1,3 @@
+This Font Software is licensed under the SIL Open Font License, Version 1.1.
+Noto Sans Telugu is Copyright 2022 The Noto Project Authors (https://github.com/notofonts/telugu).
+Full license: https://openfontlicense.org

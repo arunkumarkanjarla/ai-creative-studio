@@ -9,8 +9,9 @@ AI Video Studio generates short preview videos on CPU with a pluggable path to a
 1. **FFmpeg + ffprobe** on `PATH` (video encode, concat, xfade transitions, subtitles, audio mix)
 2. **edge-tts** (already in `requirements.txt`) — needs **internet** to call Microsoft’s neural TTS voices
 3. **Pillow + NumPy** — frame compositing, procedural backgrounds, motion
-4. **rembg + onnxruntime** — CPU character background removal (cutouts cached under `generated_videos/cutout_cache/`)
-5. PostgreSQL for job rows (`video_projects`, `video_scenes`, `video_characters`, `video_events`)
+4. **rembg + onnxruntime** — CPU character background removal (cutouts cached under `generated_videos/cutout_cache/`) with edge erode/feather cleanup
+5. **Noto Sans Telugu** + **Noto Sans** (OFL) bundled at `backend/app/assets/fonts/` — dialogue burned in-frame with **Pillow + raqm/HarfBuzz** (correct Telugu conjuncts) inside a semi-transparent box; ASS + string list also written for verification. Falls back to Windows **Nirmala UI** when present.
+6. PostgreSQL for job rows (`video_projects`, `video_scenes`, `video_characters`, `video_events`)
 
 ### What it does
 
