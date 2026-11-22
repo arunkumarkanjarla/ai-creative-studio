@@ -54,3 +54,5 @@ backend/generated_videos/**
 !backend/generated_videos/**/.gitkeep
 backend/video_worker/ltx_outputs/
 backend/video_worker/.venv/
+.venv/
+backend/.venv/

@@ -256,27 +256,34 @@ async def create_video(
     db.commit()
     db.refresh(project)
 
-    # Save characters + images
+    # Save characters + images.
+    # Uploads are ordered to match characters that set has_image=true (or upload_index).
+    upload_iter = iter(uploads)
     for i, char in enumerate(characters_data[:MAX_CHARACTERS]):
         name = (char.get("name") or f"Character {i + 1}").strip()[:200]
         voice_id = (char.get("voice_id") or "en-US-JennyNeural").strip()
         image_path = None
-        if i < len(uploads) and uploads[i] is not None:
-            upload = uploads[i]
-            content_type = (upload.content_type or "").lower()
-            if content_type not in ALLOWED_IMAGE_TYPES and not (
-                upload.filename or ""
-            ).lower().endswith((".jpg", ".jpeg", ".png", ".webp")):
-                raise HTTPException(status_code=400, detail=f"Invalid image type for character {i + 1}")
-            data = await upload.read()
-            if len(data) > MAX_IMAGE_BYTES:
-                raise HTTPException(status_code=400, detail=f"Character image {i + 1} exceeds 10 MB")
-            ext = Path(upload.filename or "img.jpg").suffix.lower() or ".jpg"
-            if ext not in (".jpg", ".jpeg", ".png", ".webp"):
-                ext = ".jpg"
-            dest = CHAR_DIR / f"p{project.id}_c{i}{ext}"
-            dest.write_bytes(data)
-            image_path = str(dest)
+        wants_image = bool(char.get("has_image")) or char.get("upload_index") is not None
+        if wants_image:
+            try:
+                upload = next(upload_iter)
+            except StopIteration:
+                upload = None
+            if upload is not None:
+                content_type = (upload.content_type or "").lower()
+                if content_type not in ALLOWED_IMAGE_TYPES and not (
+                    upload.filename or ""
+                ).lower().endswith((".jpg", ".jpeg", ".png", ".webp")):
+                    raise HTTPException(status_code=400, detail=f"Invalid image type for character {i + 1}")
+                data = await upload.read()
+                if len(data) > MAX_IMAGE_BYTES:
+                    raise HTTPException(status_code=400, detail=f"Character image {i + 1} exceeds 10 MB")
+                ext = Path(upload.filename or "img.jpg").suffix.lower() or ".jpg"
+                if ext not in (".jpg", ".jpeg", ".png", ".webp"):
+                    ext = ".jpg"
+                dest = CHAR_DIR / f"p{project.id}_c{i}{ext}"
+                dest.write_bytes(data)
+                image_path = str(dest)
         db.add(
             VideoCharacter(
                 project_id=project.id,

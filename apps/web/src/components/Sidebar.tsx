@@ -78,11 +78,13 @@ export default function Sidebar({
   const [pins, setPins] = useState<string[]>(() => readIdList(PIN_KEY));
   const [photoOpen, setPhotoOpen] = useState(true);
   const [audioAdminOpen, setAudioAdminOpen] = useState(true);
+  const [videoAdminOpen, setVideoAdminOpen] = useState(true);
 
   const isLoggedIn = Boolean(user);
   const activeTool = (searchParams.get("tool") || "text_to_image") as StudioToolId;
   const onPhotoStudio = location.pathname.startsWith("/studios/image");
   const onAudioAdmin = location.pathname.startsWith("/admin/audio");
+  const onVideoAdmin = location.pathname.startsWith("/admin/video");
 
   useEffect(() => {
     writeIdList(FAV_KEY, favorites);
@@ -148,6 +150,13 @@ export default function Sidebar({
         visible: !guestMode && isAdmin,
       },
       {
+        id: "video-admin",
+        to: "/admin/video/overview",
+        label: "Video",
+        icon: Video,
+        visible: !guestMode && isAdmin,
+      },
+      {
         id: "photo",
         to: toolPath("text_to_image"),
         label: "Photo Studio",
@@ -190,6 +199,17 @@ export default function Sidebar({
     { id: "users-guests", label: "Users & Guests", to: "/admin/audio/users-guests" },
     { id: "events", label: "Event Log", to: "/admin/audio/events" },
     { id: "errors", label: "Failed / Errors", to: "/admin/audio/errors" },
+  ].filter((page) =>
+    page.label.toLowerCase().includes(query.trim().toLowerCase())
+  );
+
+  const videoAdminPages = [
+    { id: "overview", label: "Video Overview", to: "/admin/video/overview" },
+    { id: "generated", label: "Generated Videos", to: "/admin/video/generated" },
+    { id: "jobs", label: "Jobs Queue", to: "/admin/video/jobs" },
+    { id: "users", label: "Users", to: "/admin/video/users" },
+    { id: "events", label: "Event Log", to: "/admin/video/events" },
+    { id: "errors", label: "Failed / Errors", to: "/admin/video/errors" },
   ].filter((page) =>
     page.label.toLowerCase().includes(query.trim().toLowerCase())
   );
@@ -284,6 +304,34 @@ export default function Sidebar({
     );
   }
 
+  function renderVideoAdminPages() {
+    if (!videoAdminOpen && !onVideoAdmin) return null;
+    if (collapsed) return null;
+
+    return (
+      <div className="sidebar-subnav" aria-label="Video Admin pages">
+        {!query.trim() && (
+          <div className="sidebar-group-title">Video Management</div>
+        )}
+        {videoAdminPages.map((page) => {
+          const isActive = location.pathname === page.to;
+          return (
+            <Link
+              key={page.id}
+              to={page.to}
+              title={page.label}
+              aria-current={isActive ? "page" : undefined}
+              className={`sidebar-sublink${isActive ? " active" : ""}`}
+              onClick={handleLinkClick}
+            >
+              <span className="sidebar-sublink-label">{page.label}</span>
+            </Link>
+          );
+        })}
+      </div>
+    );
+  }
+
   function renderGroup(title: string, group: MenuItem[]) {
     if (group.length === 0) return null;
 
@@ -297,6 +345,7 @@ export default function Sidebar({
             const isPinned = pins.includes(item.id);
             const isPhoto = item.id === "photo";
             const isAudioAdmin = item.id === "audio-admin";
+            const isVideoAdmin = item.id === "video-admin";
 
             return (
               <div className="sidebar-item-stack" key={item.id}>
@@ -314,14 +363,19 @@ export default function Sidebar({
                             ? onAudioAdmin
                               ? " active"
                               : ""
-                            : isActive
-                              ? " active"
-                              : ""
+                            : isVideoAdmin
+                              ? onVideoAdmin
+                                ? " active"
+                                : ""
+                              : isActive
+                                ? " active"
+                                : ""
                       }`
                     }
                     onClick={() => {
                       if (isPhoto) setPhotoOpen(true);
                       if (isAudioAdmin) setAudioAdminOpen(true);
+                      if (isVideoAdmin) setVideoAdminOpen(true);
                       handleLinkClick();
                     }}
                   >
@@ -352,6 +406,7 @@ export default function Sidebar({
                 </div>
                 {isPhoto && renderPhotoTools()}
                 {isAudioAdmin && renderAudioAdminPages()}
+                {isVideoAdmin && renderVideoAdminPages()}
               </div>
             );
           })}

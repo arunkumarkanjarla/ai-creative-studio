@@ -48,6 +48,13 @@ import AdminUsersGuests from "./pages/Admin/Audio/AdminUsersGuests";
 import AdminEventLog from "./pages/Admin/Audio/AdminEventLog";
 import AdminErrors from "./pages/Admin/Audio/AdminErrors";
 
+import AdminVideoOverview from "./pages/Admin/Video/AdminVideoOverview";
+import AdminGeneratedVideos from "./pages/Admin/Video/AdminGeneratedVideos";
+import AdminVideoJobs from "./pages/Admin/Video/AdminVideoJobs";
+import AdminVideoUsers from "./pages/Admin/Video/AdminVideoUsers";
+import AdminVideoEventLog from "./pages/Admin/Video/AdminVideoEventLog";
+import AdminVideoErrors from "./pages/Admin/Video/AdminVideoErrors";
+
 import "./App.css";
 
 const SIDEBAR_COLLAPSED_KEY = "acs_sidebar_collapsed";
@@ -198,6 +205,12 @@ function App() {
                   <Route path="/admin/audio/users-guests" element={<AdminUsersGuests />} />
                   <Route path="/admin/audio/events" element={<AdminEventLog />} />
                   <Route path="/admin/audio/errors" element={<AdminErrors />} />
+                  <Route path="/admin/video/overview" element={<AdminVideoOverview />} />
+                  <Route path="/admin/video/generated" element={<AdminGeneratedVideos />} />
+                  <Route path="/admin/video/jobs" element={<AdminVideoJobs />} />
+                  <Route path="/admin/video/users" element={<AdminVideoUsers />} />
+                  <Route path="/admin/video/events" element={<AdminVideoEventLog />} />
+                  <Route path="/admin/video/errors" element={<AdminVideoErrors />} />
                 </Route>
               </Route>
             </Route>
