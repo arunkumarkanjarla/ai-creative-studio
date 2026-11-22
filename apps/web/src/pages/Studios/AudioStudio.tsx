@@ -376,8 +376,20 @@ export default function AudioStudio() {
     try {
       setLoadingPreview(voice.voice_id);
       
-      const url = `/audio/voices/${voice.voice_id}/preview`;
-      const response = await apiRequest(url, { method: "GET", isBlob: true });
+      const API_BASE_URL = "http://localhost:8000/api/v1";
+      const url = `${API_BASE_URL}/audio/voices/${voice.voice_id}/preview`;
+      const visitorId = localStorage.getItem('visitor-id') || 'unknown';
+      
+      const response = await fetch(url, {
+        headers: {
+          'X-Visitor-Id': visitorId
+        }
+      });
+      
+      if (!response.ok) {
+        throw new Error(`Preview failed: ${response.statusText}`);
+      }
+      
       const blob = await response.blob();
       const audioUrl = URL.createObjectURL(blob);
       
