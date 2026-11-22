@@ -20,6 +20,7 @@ from app.models.audio import VoiceProfile, TTSGeneration, Transcription
 from app.api.v1.dependencies import get_current_user, get_optional_user
 from app.core.analytics import track_usage_event, get_client_ip
 from app.core.audio_events import log_audio_event, check_rate_limit
+from app.data.voices import BUILTIN_VOICES, get_preview_text
 from fastapi import Request
 
 router = APIRouter(prefix="/audio", tags=["Audio Studio"])
@@ -28,63 +29,42 @@ router = APIRouter(prefix="/audio", tags=["Audio Studio"])
 BACKEND_DIR = Path(__file__).resolve().parents[3]
 AUDIO_DIR = BACKEND_DIR / "generated_audio"
 AUDIO_DIR.mkdir(parents=True, exist_ok=True)
+PREVIEW_DIR = AUDIO_DIR / "previews"
+PREVIEW_DIR.mkdir(parents=True, exist_ok=True)
 
-# Built-in voice library with edge-tts voices
-# https://speech.microsoft.com/portal/voicegallery
-BUILTIN_VOICES = [
-    # English US - Adult
-    {"voice_id": "en-US-AriaNeural", "name": "Aria (US Female)", "gender": "female", "age_group": "adult", "language": "en-US", "locale": "en-US"},
-    {"voice_id": "en-US-GuyNeural", "name": "Guy (US Male)", "gender": "male", "age_group": "adult", "language": "en-US", "locale": "en-US"},
-    {"voice_id": "en-US-JennyNeural", "name": "Jenny (US Female)", "gender": "female", "age_group": "adult", "language": "en-US", "locale": "en-US"},
-    {"voice_id": "en-US-TonyNeural", "name": "Tony (US Male)", "gender": "male", "age_group": "adult", "language": "en-US", "locale": "en-US"},
-    
-    # English US - Child
-    {"voice_id": "en-US-AnaNeural", "name": "Ana (US Child)", "gender": "female", "age_group": "child", "language": "en-US", "locale": "en-US"},
-    
-    # English India
-    {"voice_id": "en-IN-NeerjaNeural", "name": "Neerja (India Female)", "gender": "female", "age_group": "adult", "language": "en-IN", "locale": "en-IN"},
-    {"voice_id": "en-IN-PrabhatNeural", "name": "Prabhat (India Male)", "gender": "male", "age_group": "adult", "language": "en-IN", "locale": "en-IN"},
-    
-    # Hindi
-    {"voice_id": "hi-IN-SwaraNeural", "name": "Swara (Hindi Female)", "gender": "female", "age_group": "adult", "language": "hi-IN", "locale": "hi-IN"},
-    {"voice_id": "hi-IN-MadhurNeural", "name": "Madhur (Hindi Male)", "gender": "male", "age_group": "adult", "language": "hi-IN", "locale": "hi-IN"},
-    
-    # Telugu
-    {"voice_id": "te-IN-ShrutiNeural", "name": "Shruti (Telugu Female)", "gender": "female", "age_group": "adult", "language": "te-IN", "locale": "te-IN"},
-    {"voice_id": "te-IN-MohanNeural", "name": "Mohan (Telugu Male)", "gender": "male", "age_group": "adult", "language": "te-IN", "locale": "te-IN"},
-    
-    # Child-style presets (higher pitch, faster rate based on female voices)
-    {"voice_id": "preset-child-en-IN", "name": "Child-Style (India English)", "gender": "female", "age_group": "child", "language": "en-IN", "locale": "en-IN", "base_voice": "en-IN-NeerjaNeural", "preset_pitch": 1.3, "preset_rate": 1.1},
-    {"voice_id": "preset-child-hi-IN", "name": "Child-Style (Hindi)", "gender": "female", "age_group": "child", "language": "hi-IN", "locale": "hi-IN", "base_voice": "hi-IN-SwaraNeural", "preset_pitch": 1.3, "preset_rate": 1.1},
-    {"voice_id": "preset-child-te-IN", "name": "Child-Style (Telugu)", "gender": "female", "age_group": "child", "language": "te-IN", "locale": "te-IN", "base_voice": "te-IN-ShrutiNeural", "preset_pitch": 1.3, "preset_rate": 1.1},
-    
-    # English UK
-    {"voice_id": "en-GB-SoniaNeural", "name": "Sonia (UK Female)", "gender": "female", "age_group": "adult", "language": "en-GB", "locale": "en-GB"},
-    {"voice_id": "en-GB-RyanNeural", "name": "Ryan (UK Male)", "gender": "male", "age_group": "adult", "language": "en-GB", "locale": "en-GB"},
-]
+# Built-in voice library imported from voices.py (70+ voices)
 
 
 def init_builtin_voices(db: Session):
-    """Initialize built-in voice profiles in database if not present."""
+    """Initialize or update built-in voice profiles in database."""
     for voice_data in BUILTIN_VOICES:
         existing = db.query(VoiceProfile).filter(
             VoiceProfile.voice_id == voice_data["voice_id"],
             VoiceProfile.is_custom == False
         ).first()
         
-        if not existing:
-            # For preset voices, use base_voice as the actual voice_id for edge-tts
+        if existing:
+            # Update existing voice with new fields
+            existing.region = voice_data.get("region")
+            existing.country = voice_data.get("country")
+            existing.accent = voice_data.get("accent")
+            existing.voice_type = voice_data.get("voice_type")
+        else:
+            # Create new voice profile
             base_voice = voice_data.get("base_voice")
             profile = VoiceProfile(
                 user_id=None,
                 name=voice_data["name"],
                 voice_id=voice_data["voice_id"],
-                base_voice_id=base_voice,  # For presets, this is the actual edge-tts voice
+                base_voice_id=base_voice,
                 gender=voice_data["gender"],
                 age_group=voice_data["age_group"],
                 language=voice_data["language"],
                 locale=voice_data["locale"],
-                # Apply preset parameters
+                region=voice_data.get("region"),
+                country=voice_data.get("country"),
+                accent=voice_data.get("accent"),
+                voice_type=voice_data.get("voice_type"),
                 pitch=voice_data.get("preset_pitch", 1.0),
                 rate=voice_data.get("preset_rate", 1.0),
                 volume=1.0,
@@ -155,6 +135,10 @@ def list_voices(
                 "age_group": v.age_group,
                 "language": v.language,
                 "locale": v.locale,
+                "region": v.region,
+                "country": v.country,
+                "accent": v.accent,
+                "voice_type": v.voice_type,
                 "is_custom": v.is_custom,
                 "pitch": v.pitch if v.is_custom else 1.0,
                 "rate": v.rate if v.is_custom else 1.0,
@@ -163,6 +147,114 @@ def list_voices(
             for v in voices
         ]
     }
+
+
+@router.get("/voices/{voice_id}/preview")
+async def preview_voice(
+    request: Request,
+    voice_id: str,
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_optional_user)
+):
+    """
+    Generate and return a preview audio for a voice.
+    Lazily generated and cached. Works for guests and authenticated users.
+    """
+    import time
+    import hashlib
+    start_time = time.time()
+    
+    visitor_id = request.headers.get("X-Visitor-Id")
+    forwarded_for = request.headers.get("X-Forwarded-For")
+    ip = get_client_ip(request, forwarded_for)
+    
+    # Light rate limit for previews (100/hour for guests)
+    if not current_user:
+        if not visitor_id:
+            raise HTTPException(status_code=400, detail="Visitor ID required")
+        if check_rate_limit(db, visitor_id, ip, limit_per_hour=100):
+            raise HTTPException(status_code=429, detail="Preview rate limit exceeded")
+    
+    # Get voice profile
+    voice_profile = db.query(VoiceProfile).filter(
+        VoiceProfile.voice_id == voice_id
+    ).first()
+    
+    if not voice_profile:
+        raise HTTPException(status_code=404, detail="Voice not found")
+    
+    # Get preview text
+    preview_text = get_preview_text(voice_profile.language, voice_profile.name)
+    
+    # Generate cache key based on voice_id and settings
+    cache_key = f"{voice_id}_p{voice_profile.pitch}_r{voice_profile.rate}"
+    cache_hash = hashlib.md5(cache_key.encode()).hexdigest()
+    preview_filename = f"preview_{cache_hash}.mp3"
+    preview_path = PREVIEW_DIR / preview_filename
+    
+    # Check if preview exists in cache
+    if not preview_path.exists():
+        # Generate preview
+        try:
+            import edge_tts
+            
+            # Determine actual voice to use
+            actual_voice_id = voice_profile.base_voice_id if voice_profile.base_voice_id else voice_id
+            
+            # Apply voice settings
+            final_pitch = voice_profile.pitch if voice_profile.pitch else 1.0
+            final_rate = voice_profile.rate if voice_profile.rate else 1.0
+            final_volume = voice_profile.volume if voice_profile.volume else 1.0
+            
+            rate_str = f"{int((final_rate - 1.0) * 100):+d}%" if final_rate != 1.0 else "+0%"
+            pitch_str = f"{int((final_pitch - 1.0) * 50):+d}Hz" if final_pitch != 1.0 else "+0Hz"
+            volume_str = f"{int((final_volume - 1.0) * 100):+d}%" if final_volume != 1.0 else "+0%"
+            
+            communicate = edge_tts.Communicate(
+                text=preview_text,
+                voice=actual_voice_id,
+                rate=rate_str,
+                pitch=pitch_str,
+                volume=volume_str
+            )
+            
+            await communicate.save(str(preview_path))
+            
+        except Exception as e:
+            duration_ms = int((time.time() - start_time) * 1000)
+            log_audio_event(
+                db=db, request=request, action="preview_voice",
+                user_id=current_user.id if current_user else None,
+                visitor_id=visitor_id if not current_user else None,
+                voice_id=voice_id, voice_name=voice_profile.name,
+                language=voice_profile.language,
+                status="failed", error_message=str(e),
+                processing_time_ms=duration_ms
+            )
+            raise HTTPException(status_code=500, detail=f"Preview generation failed: {str(e)}")
+    
+    # Get file info
+    file_size = preview_path.stat().st_size
+    duration_ms = int((time.time() - start_time) * 1000)
+    
+    # Log preview event
+    log_audio_event(
+        db=db, request=request, action="preview_voice",
+        user_id=current_user.id if current_user else None,
+        visitor_id=visitor_id if not current_user else None,
+        voice_id=voice_id, voice_name=voice_profile.name,
+        language=voice_profile.language,
+        file_size=file_size,
+        processing_time_ms=duration_ms,
+        status="success"
+    )
+    
+    # Return the preview file
+    return FileResponse(
+        path=str(preview_path),
+        media_type="audio/mpeg",
+        filename=preview_filename
+    )
 
 
 @router.post("/voices/custom")

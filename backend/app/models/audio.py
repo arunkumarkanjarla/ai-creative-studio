@@ -24,6 +24,10 @@ class VoiceProfile(Base):
     age_group = Column(String(20), nullable=True)  # adult, child
     language = Column(String(50), nullable=True)  # en-US, hi-IN, te-IN
     locale = Column(String(50), nullable=True)  # Full locale code
+    region = Column(String(50), nullable=True, index=True)  # North America, Europe, Asia, etc.
+    country = Column(String(100), nullable=True)  # United States, United Kingdom, etc.
+    accent = Column(String(100), nullable=True)  # American, British, Australian, etc.
+    voice_type = Column(String(50), nullable=True)  # narration, news, cheerful, friendly, etc.
     
     # Custom voice settings (for user-created presets)
     is_custom = Column(Boolean, default=False, index=True)

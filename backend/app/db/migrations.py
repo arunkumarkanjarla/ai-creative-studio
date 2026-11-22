@@ -12,6 +12,11 @@ def run_migrations(db: Session):
         migrations = [
             "ALTER TABLE voice_profiles ADD COLUMN IF NOT EXISTS visitor_id VARCHAR(255)",
             "CREATE INDEX IF NOT EXISTS ix_voice_profiles_visitor_id ON voice_profiles(visitor_id)",
+            "ALTER TABLE voice_profiles ADD COLUMN IF NOT EXISTS region VARCHAR(50)",
+            "ALTER TABLE voice_profiles ADD COLUMN IF NOT EXISTS country VARCHAR(100)",
+            "ALTER TABLE voice_profiles ADD COLUMN IF NOT EXISTS accent VARCHAR(100)",
+            "ALTER TABLE voice_profiles ADD COLUMN IF NOT EXISTS voice_type VARCHAR(50)",
+            "CREATE INDEX IF NOT EXISTS ix_voice_profiles_region ON voice_profiles(region)",
             
             "ALTER TABLE tts_generations ADD COLUMN IF NOT EXISTS visitor_id VARCHAR(255)",
             "ALTER TABLE tts_generations ALTER COLUMN user_id DROP NOT NULL",
