@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { AudioLines, Play, Pause, Download, Trash2, Upload, Mic, FileText, Languages, Volume2, Gauge, Settings } from "lucide-react";
+import { AudioLines, Play, Pause, Download, Trash2, Upload, FileText, Languages, Volume2, Gauge, Settings } from "lucide-react";
 import VoiceInput from "../../components/VoiceInput";
 import { apiRequest } from "../../services/api";
 
