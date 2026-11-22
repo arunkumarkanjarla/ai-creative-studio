@@ -16,6 +16,7 @@ from app.api.v1.preview import router as preview_router
 from app.api.v1.transcribe import router as transcribe_router
 from app.api.v1.analytics import router as analytics_router
 from app.api.v1.audio import router as audio_router
+from app.api.v1.admin_audio import router as admin_audio_router
 from app.db.database import SessionLocal, engine, Base
 from app.core.analytics import track_page_visit, get_client_ip
 from app.core.security import decode_token
@@ -152,6 +153,7 @@ app.include_router(preview_router, prefix="/api/v1")
 app.include_router(transcribe_router, prefix="/api/v1")
 app.include_router(analytics_router, prefix="/api/v1")
 app.include_router(audio_router, prefix="/api/v1")
+app.include_router(admin_audio_router, prefix="/api/v1")
 
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]

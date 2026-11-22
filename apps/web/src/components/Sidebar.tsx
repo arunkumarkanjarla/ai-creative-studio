@@ -77,10 +77,12 @@ export default function Sidebar({
   const [favorites, setFavorites] = useState<string[]>(() => readIdList(FAV_KEY));
   const [pins, setPins] = useState<string[]>(() => readIdList(PIN_KEY));
   const [photoOpen, setPhotoOpen] = useState(true);
+  const [audioAdminOpen, setAudioAdminOpen] = useState(true);
 
   const isLoggedIn = Boolean(user);
   const activeTool = (searchParams.get("tool") || "text_to_image") as StudioToolId;
   const onPhotoStudio = location.pathname.startsWith("/studios/image");
+  const onAudioAdmin = location.pathname.startsWith("/admin/audio");
 
   useEffect(() => {
     writeIdList(FAV_KEY, favorites);
@@ -139,9 +141,9 @@ export default function Sidebar({
         visible: !guestMode && isAdmin,
       },
       {
-        id: "audio-activity",
-        to: "/admin/audio-activity",
-        label: "Audio Activity",
+        id: "audio-admin",
+        to: "/admin/audio/overview",
+        label: "Audio",
         icon: AudioLines,
         visible: !guestMode && isAdmin,
       },
@@ -178,6 +180,18 @@ export default function Sidebar({
 
   const photoTools = CREATE_TOOLS.filter((tool) =>
     tool.label.toLowerCase().includes(query.trim().toLowerCase())
+  );
+
+  const audioAdminPages = [
+    { id: "overview", label: "Audio Overview", to: "/admin/audio/overview" },
+    { id: "generated", label: "Generated Audio (TTS)", to: "/admin/audio/generated" },
+    { id: "transcriptions", label: "Transcriptions (STT)", to: "/admin/audio/transcriptions" },
+    { id: "voices", label: "Voice Library", to: "/admin/audio/voices" },
+    { id: "users-guests", label: "Users & Guests", to: "/admin/audio/users-guests" },
+    { id: "events", label: "Event Log", to: "/admin/audio/events" },
+    { id: "errors", label: "Failed / Errors", to: "/admin/audio/errors" },
+  ].filter((page) =>
+    page.label.toLowerCase().includes(query.trim().toLowerCase())
   );
 
   const pinnedItems = filtered.filter((item) => pins.includes(item.id));
@@ -241,6 +255,35 @@ export default function Sidebar({
     );
   }
 
+  function renderAudioAdminPages() {
+    if (!audioAdminOpen && !onAudioAdmin) return null;
+    if (collapsed) return null;
+
+    return (
+      <div className="sidebar-subnav" aria-label="Audio Admin pages">
+        {!query.trim() && (
+          <div className="sidebar-group-title">Audio Management</div>
+        )}
+        {audioAdminPages.map((page) => {
+          const isActive = location.pathname === page.to || 
+                          (page.id === "overview" && location.pathname === "/admin/audio-activity");
+          return (
+            <Link
+              key={page.id}
+              to={page.to}
+              title={page.label}
+              aria-current={isActive ? "page" : undefined}
+              className={`sidebar-sublink${isActive ? " active" : ""}`}
+              onClick={handleLinkClick}
+            >
+              <span className="sidebar-sublink-label">{page.label}</span>
+            </Link>
+          );
+        })}
+      </div>
+    );
+  }
+
   function renderGroup(title: string, group: MenuItem[]) {
     if (group.length === 0) return null;
 
@@ -253,6 +296,7 @@ export default function Sidebar({
             const isFav = favorites.includes(item.id);
             const isPinned = pins.includes(item.id);
             const isPhoto = item.id === "photo";
+            const isAudioAdmin = item.id === "audio-admin";
 
             return (
               <div className="sidebar-item-stack" key={item.id}>
@@ -266,13 +310,18 @@ export default function Sidebar({
                           ? onPhotoStudio
                             ? " active"
                             : ""
-                          : isActive
-                            ? " active"
-                            : ""
+                          : isAudioAdmin
+                            ? onAudioAdmin
+                              ? " active"
+                              : ""
+                            : isActive
+                              ? " active"
+                              : ""
                       }`
                     }
                     onClick={() => {
                       if (isPhoto) setPhotoOpen(true);
+                      if (isAudioAdmin) setAudioAdminOpen(true);
                       handleLinkClick();
                     }}
                   >
@@ -302,6 +351,7 @@ export default function Sidebar({
                   )}
                 </div>
                 {isPhoto && renderPhotoTools()}
+                {isAudioAdmin && renderAudioAdminPages()}
               </div>
             );
           })}
