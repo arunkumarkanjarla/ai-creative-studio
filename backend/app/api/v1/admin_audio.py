@@ -619,3 +619,71 @@ def export_transcriptions_csv(
         media_type="text/csv",
         headers={"Content-Disposition": f"attachment; filename=transcriptions_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"}
     )
+
+
+# Voice Library endpoints
+
+@router.get("/voices/list")
+def list_voices_admin(
+    db: Session = Depends(get_db),
+    _: User = Depends(require_admin),
+    include_custom: bool = Query(True)
+):
+    """List all voices with usage statistics."""
+    query = db.query(VoiceProfile)
+    
+    if not include_custom:
+        query = query.filter(VoiceProfile.is_custom == False)
+    
+    voices = query.order_by(VoiceProfile.name).all()
+    
+    results = []
+    for voice in voices:
+        # Count usage in TTS generations
+        usage_count = db.query(func.count(TTSGeneration.id)).filter(
+            TTSGeneration.voice_id == voice.voice_id
+        ).scalar()
+        
+        results.append({
+            "id": voice.id,
+            "voice_id": voice.voice_id,
+            "name": voice.name,
+            "gender": voice.gender,
+            "age_group": voice.age_group,
+            "language": voice.language,
+            "locale": voice.locale,
+            "region": voice.region,
+            "country": voice.country,
+            "accent": voice.accent,
+            "voice_type": voice.voice_type,
+            "is_custom": voice.is_custom,
+            "is_active": voice.is_active,
+            "usage_count": usage_count,
+            "created_at": voice.created_at.isoformat()
+        })
+    
+    return {
+        "total": len(results),
+        "voices": results
+    }
+
+
+@router.patch("/voices/{voice_id}/toggle")
+def toggle_voice_active(
+    voice_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_admin)
+):
+    """Enable or disable a voice."""
+    voice = db.query(VoiceProfile).filter(VoiceProfile.id == voice_id).first()
+    if not voice:
+        raise HTTPException(status_code=404, detail="Voice not found")
+    
+    voice.is_active = not voice.is_active
+    db.commit()
+    
+    return {
+        "id": voice.id,
+        "name": voice.name,
+        "is_active": voice.is_active
+    }
