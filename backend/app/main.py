@@ -30,6 +30,7 @@ async def lifespan(app: FastAPI):
     from app.models.ai_access import AIGenerationAttempt
     from app.models.analytics import VisitorSession, LoginSession, UsageEvent
     from app.models.audio import VoiceProfile, TTSGeneration, Transcription
+    from app.models.audio_events import AudioEvent
     
     # Create all tables if they don't exist
     print("Creating database tables...")
