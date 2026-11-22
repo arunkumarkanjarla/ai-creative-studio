@@ -52,6 +52,11 @@ BUILTIN_VOICES = [
     {"voice_id": "te-IN-ShrutiNeural", "name": "Shruti (Telugu Female)", "gender": "female", "age_group": "adult", "language": "te-IN", "locale": "te-IN"},
     {"voice_id": "te-IN-MohanNeural", "name": "Mohan (Telugu Male)", "gender": "male", "age_group": "adult", "language": "te-IN", "locale": "te-IN"},
     
+    # Child-style presets (higher pitch, faster rate based on female voices)
+    {"voice_id": "preset-child-en-IN", "name": "Child-Style (India English)", "gender": "female", "age_group": "child", "language": "en-IN", "locale": "en-IN", "base_voice": "en-IN-NeerjaNeural", "preset_pitch": 1.3, "preset_rate": 1.1},
+    {"voice_id": "preset-child-hi-IN", "name": "Child-Style (Hindi)", "gender": "female", "age_group": "child", "language": "hi-IN", "locale": "hi-IN", "base_voice": "hi-IN-SwaraNeural", "preset_pitch": 1.3, "preset_rate": 1.1},
+    {"voice_id": "preset-child-te-IN", "name": "Child-Style (Telugu)", "gender": "female", "age_group": "child", "language": "te-IN", "locale": "te-IN", "base_voice": "te-IN-ShrutiNeural", "preset_pitch": 1.3, "preset_rate": 1.1},
+    
     # English UK
     {"voice_id": "en-GB-SoniaNeural", "name": "Sonia (UK Female)", "gender": "female", "age_group": "adult", "language": "en-GB", "locale": "en-GB"},
     {"voice_id": "en-GB-RyanNeural", "name": "Ryan (UK Male)", "gender": "male", "age_group": "adult", "language": "en-GB", "locale": "en-GB"},
@@ -67,14 +72,21 @@ def init_builtin_voices(db: Session):
         ).first()
         
         if not existing:
+            # For preset voices, use base_voice as the actual voice_id for edge-tts
+            base_voice = voice_data.get("base_voice")
             profile = VoiceProfile(
                 user_id=None,
                 name=voice_data["name"],
                 voice_id=voice_data["voice_id"],
+                base_voice_id=base_voice,  # For presets, this is the actual edge-tts voice
                 gender=voice_data["gender"],
                 age_group=voice_data["age_group"],
                 language=voice_data["language"],
                 locale=voice_data["locale"],
+                # Apply preset parameters
+                pitch=voice_data.get("preset_pitch", 1.0),
+                rate=voice_data.get("preset_rate", 1.0),
+                volume=1.0,
                 is_custom=False,
                 is_active=True
             )
@@ -234,13 +246,26 @@ async def generate_tts(
         # Generate audio using edge-tts
         import edge_tts
         
-        # Determine actual voice to use (custom voices use their base)
-        actual_voice_id = voice_profile.base_voice_id if voice_profile.is_custom else voice_id
+        # Determine actual voice to use
+        # Presets and custom voices use base_voice_id, regular voices use voice_id
+        actual_voice_id = voice_profile.base_voice_id if voice_profile.base_voice_id else voice_id
+        
+        # For preset voices, merge preset parameters with user parameters
+        # Preset parameters act as defaults that can be further adjusted
+        if voice_profile.base_voice_id:
+            # Apply preset parameters if they exist
+            final_pitch = pitch * (voice_profile.pitch if voice_profile.pitch else 1.0)
+            final_rate = rate * (voice_profile.rate if voice_profile.rate else 1.0)
+            final_volume = volume * (voice_profile.volume if voice_profile.volume else 1.0)
+        else:
+            final_pitch = pitch
+            final_rate = rate
+            final_volume = volume
         
         # Build SSML with rate and pitch if not default
-        rate_str = f"{int((rate - 1.0) * 100):+d}%" if rate != 1.0 else "+0%"
-        pitch_str = f"{int((pitch - 1.0) * 50):+d}Hz" if pitch != 1.0 else "+0Hz"
-        volume_str = f"{int((volume - 1.0) * 100):+d}%" if volume != 1.0 else "+0%"
+        rate_str = f"{int((final_rate - 1.0) * 100):+d}%" if final_rate != 1.0 else "+0%"
+        pitch_str = f"{int((final_pitch - 1.0) * 50):+d}Hz" if final_pitch != 1.0 else "+0Hz"
+        volume_str = f"{int((final_volume - 1.0) * 100):+d}%" if final_volume != 1.0 else "+0%"
         
         communicate = edge_tts.Communicate(
             text=text,
@@ -448,27 +473,62 @@ async def transcribe_audio(
                 detail="Whisper transcription not available. Install faster-whisper package."
             )
         
+        # Check if ffmpeg is available
+        import shutil
+        if not shutil.which("ffmpeg"):
+            transcription.status = "failed"
+            transcription.error_message = "FFmpeg not found. Please install FFmpeg: https://ffmpeg.org/download.html"
+            db.commit()
+            raise HTTPException(
+                status_code=503,
+                detail="FFmpeg is required for audio transcription but was not found. Please install FFmpeg."
+            )
+        
         # Save uploaded file temporarily
-        upload_filename = f"upload_{transcription.id}_{int(time.time())}.{audio.filename.split('.')[-1]}"
+        original_ext = audio.filename.split('.')[-1] if '.' in audio.filename else 'mp3'
+        upload_filename = f"upload_{transcription.id}_{int(time.time())}.{original_ext}"
         upload_path = AUDIO_DIR / upload_filename
         
         content = await audio.read()
         with open(upload_path, "wb") as f:
             f.write(content)
         
-        transcription.source_file = str(upload_path)
+        # Convert to WAV format for compatibility (fixes metadata_errors issue)
+        # This ensures consistent format regardless of upload type (mp3/webm/wav/etc)
+        import subprocess
+        wav_filename = f"upload_{transcription.id}_{int(time.time())}_converted.wav"
+        wav_path = AUDIO_DIR / wav_filename
+        
+        try:
+            subprocess.run(
+                ["ffmpeg", "-i", str(upload_path), "-ar", "16000", "-ac", "1", "-y", str(wav_path)],
+                check=True,
+                capture_output=True
+            )
+        except subprocess.CalledProcessError as e:
+            transcription.status = "failed"
+            transcription.error_message = f"Audio conversion failed: {e.stderr.decode()}"
+            db.commit()
+            raise HTTPException(status_code=400, detail="Failed to process audio file. Please check the format.")
+        
+        transcription.source_file = str(wav_path)
         db.commit()
         
         # Load Whisper model (tiny for speed on CPU)
+        # Model is downloaded to ~/.cache/huggingface/hub/ on first use (~75MB for tiny model)
         model_size = os.getenv("WHISPER_MODEL_SIZE", "tiny")
         model = WhisperModel(model_size, device="cpu", compute_type="int8")
         
-        # Transcribe
+        # Transcribe the converted WAV file
         segments_list, info = model.transcribe(
-            str(upload_path),
+            str(wav_path),
             language=language if language else None,
             beam_size=5
         )
+        
+        # Clean up original upload file
+        if upload_path.exists() and upload_path != wav_path:
+            upload_path.unlink()
         
         # Collect segments with timestamps
         segments_data = []
